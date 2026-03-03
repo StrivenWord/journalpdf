@@ -45,6 +45,11 @@ def clean_common_acm_artifacts(text):
     return text.strip()
 
 
+def flatten_block_text(text):
+    """Collapse line-wrapped block content into single lines."""
+    return re.sub(r'\s*\n\s*', ' ', text).strip()
+
+
 # ==========================================================
 # Core Pipeline Class
 # ==========================================================
@@ -94,10 +99,14 @@ class ACMPDFConverter:
             right_blocks.sort(key=lambda x: x[0])
 
             for _, text in left_blocks:
-                page_text += text + "\n"
+                flattened = flatten_block_text(text)
+                if flattened:
+                    page_text += flattened + "\n\n"
 
             for _, text in right_blocks:
-                page_text += text + "\n"
+                flattened = flatten_block_text(text)
+                if flattened:
+                    page_text += flattened + "\n\n"
 
             # Append tables at end of page (simplified insertion)
             for _, table_md in tables:
@@ -287,6 +296,7 @@ class ACMPDFConverter:
 
         # Merge broken lines
         text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
 
         # Detect uppercase headings
         lines = text.split("\n")
