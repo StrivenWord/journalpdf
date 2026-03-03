@@ -129,15 +129,15 @@ class ACMPDFConverter:
                     vertical_gap = block["y0"] - prev["y1"]
                     same_paragraph_gap = vertical_gap <= max(6.0, prev["height"] * 0.8)
 
-                    if same_paragraph_gap:
-                        paragraph_parts.append(block["text"])
-                    else:
-                        paragraph = " ".join(paragraph_parts).strip()
-                        if paragraph:
-                            page_text += paragraph + "\n\n"
-                        paragraph_parts = [block["text"]]
+            for _, text in left_blocks:
+                flattened = flatten_block_text(text)
+                if flattened:
+                    page_text += flattened + "\n\n"
 
-                    prev = block
+            for _, text in right_blocks:
+                flattened = flatten_block_text(text)
+                if flattened:
+                    page_text += flattened + "\n\n"
 
                 if paragraph_parts:
                     paragraph = " ".join(paragraph_parts).strip()
