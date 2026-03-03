@@ -45,6 +45,11 @@ def clean_common_acm_artifacts(text):
     return text.strip()
 
 
+def flatten_block_text(text):
+    """Collapse line-wrapped block content into single lines."""
+    return re.sub(r'\s*\n\s*', ' ', text).strip()
+
+
 # ==========================================================
 # Core Pipeline Class
 # ==========================================================
@@ -64,44 +69,80 @@ class ACMPDFConverter:
     # ------------------------------------------------------
 
     def extract_column_text(self):
-        
+
         pages_text = []
 
         for page in self.doc:
-
             page_text = ""
-            tables = self.extract_tables_from_page(page)
-
             blocks = page.get_text("blocks")
-
-            left_blocks = []
-            right_blocks = []
-
             page_width = page.rect.width
-            midpoint = page_width / 2
 
+            # Build cleaned text blocks with geometry
+            text_blocks = []
             for b in blocks:
                 x0, y0, x1, y1, text, *_ = b
-                if not text.strip():
+                flattened = flatten_block_text(text)
+                if not flattened:
+                    continue
+                text_blocks.append({
+                    "x0": x0,
+                    "y0": y0,
+                    "y1": y1,
+                    "height": max(1.0, y1 - y0),
+                    "text": flattened,
+                })
+
+            if not text_blocks:
+                pages_text.append(page_text)
+                continue
+
+            # Detect approximate columns by clustering block x-positions
+            column_threshold = page_width * 0.12
+            columns = []
+            for block in sorted(text_blocks, key=lambda b: b["x0"]):
+                if not columns:
+                    columns.append({"center": block["x0"], "blocks": [block]})
                     continue
 
-                if x0 < midpoint:
-                    left_blocks.append((y0, text))
+                nearest = min(columns, key=lambda c: abs(c["center"] - block["x0"]))
+                if abs(nearest["center"] - block["x0"]) <= column_threshold:
+                    nearest["blocks"].append(block)
+                    n = len(nearest["blocks"])
+                    nearest["center"] = ((nearest["center"] * (n - 1)) + block["x0"]) / n
                 else:
-                    right_blocks.append((y0, text))
+                    columns.append({"center": block["x0"], "blocks": [block]})
 
-            left_blocks.sort(key=lambda x: x[0])
-            right_blocks.sort(key=lambda x: x[0])
+            columns.sort(key=lambda c: c["center"])
 
-            for _, text in left_blocks:
-                page_text += text + "\n"
+            # Reconstruct paragraphs within each column
+            for column in columns:
+                ordered = sorted(column["blocks"], key=lambda b: (b["y0"], b["x0"]))
+                paragraph_parts = []
+                prev = None
 
-            for _, text in right_blocks:
-                page_text += text + "\n"
+                for block in ordered:
+                    if prev is None:
+                        paragraph_parts = [block["text"]]
+                        prev = block
+                        continue
 
-            # Append tables at end of page (simplified insertion)
-            for _, table_md in tables:
-                page_text += table_md
+                    vertical_gap = block["y0"] - prev["y1"]
+                    same_paragraph_gap = vertical_gap <= max(6.0, prev["height"] * 0.8)
+
+                    if same_paragraph_gap:
+                        paragraph_parts.append(block["text"])
+                    else:
+                        paragraph = " ".join(paragraph_parts).strip()
+                        if paragraph:
+                            page_text += paragraph + "\n\n"
+                        paragraph_parts = [block["text"]]
+
+                    prev = block
+
+                if paragraph_parts:
+                    paragraph = " ".join(paragraph_parts).strip()
+                    if paragraph:
+                        page_text += paragraph + "\n\n"
 
             pages_text.append(page_text)
 
@@ -287,6 +328,7 @@ class ACMPDFConverter:
 
         # Merge broken lines
         text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
 
         # Detect uppercase headings
         lines = text.split("\n")
