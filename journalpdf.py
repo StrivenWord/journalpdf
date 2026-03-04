@@ -87,27 +87,39 @@ class ACMPDFConverter:
             left_blocks = []
             right_blocks = []
 
-            page_width = page.rect.width
-            midpoint = page_width / 2
+            # Collect x positions
+            x_positions = [b[0] for b in blocks if b[4].strip()]
+            x_positions.sort()
+
+            # Cluster by simple gap detection
+            columns = []
+            current_cluster = [x_positions[0]]
+
+            for x in x_positions[1:]:
+                if abs(x - current_cluster[-1]) < 40: # tolerance
+                    current_cluster.append(x)
+                else:
+                    columns.append(current_cluster)
+                    current_cluster = [x]
+
+            columns.append(current_cluster)
+
+            # Determine column centers
+            column_centers = [sum(cluster) / len(cluster) for cluster in columns]
+            column_blocks = [[] for _ in column_centers]
 
             for b in blocks:
                 x0, y0, x1, y1, text, *_ = b
                 if not text.strip():
                     continue
 
-                if x0 < midpoint:
-                    left_blocks.append((y0, text))
-                else:
-                    right_blocks.append((y0, text))
+                # Assign block to nearest column center
+                distances = [abs(x0 - center) for center in column_centers]
+                col_index = distances.index(min(distances))
+                column_blocks[col_index].append((y0, text))
 
-            left_blocks.sort(key=lambda x: x[0])
-            right_blocks.sort(key=lambda x: x[0])
-
-            left_text = self._assemble_column_blocks(left_blocks) or ""
-            right_text = self._assemble_column_blocks(right_blocks) or ""
-
-            page_text += left_text
-            page_text += right_text
+            for col in column_blocks:
+                page_text += self._assemble_column_blocks(col)
 
             # Append tables at end of page (simplified insertion)
             for _, table_md in tables:
