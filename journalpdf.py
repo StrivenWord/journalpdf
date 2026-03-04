@@ -32,8 +32,8 @@ def normalize_unicode(text):
 
 
 def fix_hyphenation(text):
-    text = re.sub(r'-\n([a-z])', r'\1', text)
-    text = re.sub(r'([a-z])-\s+([a-z])', r'\1\2', text)
+    text = re.sub(r'(\w)-\n(\w)', r'\1\2', text)
+    text = re.sub(r'(\w)-\s+(\w)', r'\1\2', text)
     return text
 
 
