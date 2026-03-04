@@ -26,6 +26,8 @@ from unidecode import unidecode
 # ==========================================================
 
 def normalize_unicode(text):
+    text = text.replace("“", '"').replace("”", '"')
+    text = text.replace("’", "'").replace("‘", "'")
     text = unidecode(text)
     text = text.replace("ﬁ", "fi").replace("ﬂ", "fl")
     return text
