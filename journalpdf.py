@@ -99,6 +99,8 @@ class ACMPDFConverter:
 
             page_width = page.rect.width
 
+            filtered_blocks = []
+
             for b in blocks:
                 x0, y0, x1, y1, text, *_ = b
                 width = x1-x0
@@ -117,6 +119,8 @@ class ACMPDFConverter:
                 # Remove footer zone
                 if y1 > bottom_margin:
                     continue
+
+                filtered_blocks.append(b)
 
             # Cluster by simple gap detection
             columns = []
@@ -137,7 +141,7 @@ class ACMPDFConverter:
 
             page_width = page.rect.width
 
-            for b in blocks:
+            for b in filtered_blocks: # not merely 'blocks' because we're excluding callouts
                 x0, y0, x1, y1, text, *_ = b
 
                 if not text.strip():
