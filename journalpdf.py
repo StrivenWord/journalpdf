@@ -284,6 +284,12 @@ class ACMPDFConverter:
         text = fix_hyphenation(text)
         text = clean_common_acm_artifacts(text)
 
+        # Merge lines inside paragraphs
+        text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+
+        # Collapse excessive blank lines
+        text = re.sub(r'\n{3,}', '\n\n', text)
+
         # Detect uppercase headings
         lines = text.split("\n")
         structured = []
