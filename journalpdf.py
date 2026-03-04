@@ -98,15 +98,11 @@ class ACMPDFConverter:
             left_blocks.sort(key=lambda x: x[0])
             right_blocks.sort(key=lambda x: x[0])
 
-            for _, text in left_blocks:
-                flattened = flatten_block_text(text)
-                if flattened:
-                    page_text += flattened + "\n\n"
+            left_text = self._assemble_column_blocks(left_blocks) or ""
+            right_text = self._assemble_column_blocks(right_blocks) or ""
 
-            for _, text in right_blocks:
-                flattened = flatten_block_text(text)
-                if flattened:
-                    page_text += flattened + "\n\n"
+            page_text += left_text
+            page_text += right_text
 
             # Append tables at end of page (simplified insertion)
             for _, table_md in tables:
@@ -115,6 +111,50 @@ class ACMPDFConverter:
             pages_text.append(page_text)
 
         self.raw_text = "\n".join(pages_text)
+    
+    # ------------------------------------------------------
+    # TABLE RECONSTRUCTION
+    # ------------------------------------------------------
+
+    def _assemble_column_blocks(self, blocks):
+        """
+        Reconstruct semantic paragraphs from column blocks.
+        Suppresses cumulative block expansion artifacts.
+        """
+
+        if not blocks:
+            return ""
+
+        blocks.sort(key=lambda x: x[0])
+
+        assembled = []
+        current = None
+        previous_flattened = None
+
+        for _, text in blocks:
+            flattened = flatten_block_text(text)
+            if not flattened:
+                continue
+
+            # Skip cumulative expansion blocks
+            if previous_flattened and flattened.startswith(previous_flattened):
+                previous_flattened = flattened
+                continue
+
+            previous_flattened = flattened
+
+            # Merge continuation blocks
+            if current and not current.rstrip().endswith(('.', '?', '!', ':')):
+                current += " " + flattened
+            else:
+                if current:
+                    assembled.append(current.strip())
+                current = flattened
+
+        if current:
+            assembled.append(current.strip())
+
+        return "\n\n".join(assembled) + "\n\n"
 
     # ------------------------------------------------------
     # TABLE EXTRACTION
@@ -199,10 +239,6 @@ class ACMPDFConverter:
         text = normalize_unicode(self.body_text)
         text = fix_hyphenation(text)
         text = clean_common_acm_artifacts(text)
-
-        # Merge broken lines
-        text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
-        text = re.sub(r'\n{3,}', '\n\n', text)
 
         # Detect uppercase headings
         lines = text.split("\n")
