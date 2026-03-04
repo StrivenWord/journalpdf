@@ -108,6 +108,11 @@ class ACMPDFConverter:
                 if not text.strip():
                     continue
 
+                # Reject spaced letter headings resulting from graphic design software
+                tokens = text.strip().split()
+                if len(tokens) >= 6 and sum(len(t) == 1 for t in tokens) / len(tokens) > 0.6:
+                    continue
+
                 # Reject narrow blocks (likely callouts or sidebars)
                 if width < page_width * 0.30:
                     continue
