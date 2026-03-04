@@ -97,10 +97,17 @@ class ACMPDFConverter:
             top_margin = page_height * 0.08
             bottom_margin = page_height * 0.92
 
+            page_width = page.rect.width
+
             for b in blocks:
                 x0, y0, x1, y1, text, *_ = b
+                width = x1-x0
 
                 if not text.strip():
+                    continue
+
+                # Reject narrow blocks (likely callouts or sidebars)
+                if width < page_width * 0.30:
                     continue
 
                 # Remove header zone
@@ -283,6 +290,34 @@ class ACMPDFConverter:
         text = normalize_unicode(self.body_text)
         text = fix_hyphenation(text)
         text = clean_common_acm_artifacts(text)
+
+        # Detect list-like structures based on indentation and line length
+        lines = text.split("\n")
+        processed = []
+
+        for line in lines:
+
+            stripped = line.strip()
+
+            if not stripped:
+                processed.append("")
+                continue
+
+            # bullet or enumerated list markers
+            if (
+                stripped.startswith(("•", "-", "*"))
+                or re.match(r"^\d+\.", stripped)
+                or re.match(r"^[A-Za-z]\)", stripped)
+            ):
+                processed.append("* " + stripped.lstrip("•-* ").strip())
+                continue
+
+            processed.append(line)
+
+        text = "\n".join(processed)
+
+        # Ensure that each bullet starts on its own line.
+        text = re.sub(r'\s*\*\s+', r'\n* ', text) # Any resultant double line breaks are stripped away again below.
 
         # Merge lines inside paragraphs
         text = re.sub(r'(?<!\n)\n(?!\n|[-*•])', ' ', text)
