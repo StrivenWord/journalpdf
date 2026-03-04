@@ -91,6 +91,26 @@ class ACMPDFConverter:
             x_positions = [b[0] for b in blocks if b[4].strip()]
             x_positions.sort()
 
+            # Exclude running headers and footers
+            page_height = page.rect.height
+
+            top_margin = page_height * 0.08
+            bottom_margin = page_height * 0.92
+
+            for b in blocks:
+                x0, y0, x1, y1, text, *_ = b
+
+                if not text.strip():
+                    continue
+
+                # Remove header zone
+                if y0 < top_margin:
+                    continue
+
+                # Remove footer zone
+                if y1 > bottom_margin:
+                    continue
+
             # Cluster by simple gap detection
             columns = []
             current_cluster = [x_positions[0]]
