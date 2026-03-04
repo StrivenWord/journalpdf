@@ -108,9 +108,16 @@ class ACMPDFConverter:
             column_centers = [sum(cluster) / len(cluster) for cluster in columns]
             column_blocks = [[] for _ in column_centers]
 
+            page_width = page.rect.width
+
             for b in blocks:
                 x0, y0, x1, y1, text, *_ = b
+
                 if not text.strip():
+                    continue
+
+                # Remove right-margin sidebars
+                if x0 > page_width * 0.75:
                     continue
 
                 # Assign block to nearest column center
