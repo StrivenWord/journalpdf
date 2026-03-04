@@ -38,7 +38,12 @@ def fix_hyphenation(text):
 
 
 def clean_common_acm_artifacts(text):
-    re.sub(r'\d+\s*i\s*n\s*t\s*e\s*r\s*a\s*c\s*t\s*i\s*o\s*n\s*s.*\n', '\n', text, flags=re.I)
+    text = re.sub(
+        r'\d+\s*i\s*n\s*t\s*e\s*r\s*a\s*c\s*t\s*i\s*o\s*n\s*s.*?\n',
+        '',
+        text,
+        flags=re.I
+    )
     text = re.sub(r'ACM.*?\n', '', text)
     text = re.sub(r'Copyright.*?\n', '', text)
     text = re.sub(r' {2,}', ' ', text)
