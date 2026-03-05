@@ -278,7 +278,8 @@ class ACMPDFConverter:
         )
         candidates = []
         for s in spans:
-            if s["y"] < title_y:
+            # Only look near title area
+            if s["y"] < title_y or s["y"] > title_y + 150:
                 continue
             matches = name_pattern.findall(s["text"])
             for m in matches:
@@ -291,48 +292,30 @@ class ACMPDFConverter:
     # TITLE AND SUBTITLE EXTRACTION
     # ------------------------------------------------------
 
-    def detect_title(self):
-
-        # Use the first page to detect title
-        first_page = self.doc[0]
-
-        spans = get_spans(first_page)
-
-        if not spans:
-            return
-
+    def detect_title(self, spans):
         spans_sorted = sorted(spans, key=lambda s: -s["size"])
-
         largest_size = spans_sorted[0]["size"]
-
         title_spans = [
             s for s in spans
             if abs(s["size"] - largest_size) < 0.5
         ]
-
         title_spans.sort(key=lambda s: s["y"])
-
         title = " ".join(s["text"] for s in title_spans)
-
-        self.metadata["title"] = title
-
+        title_y = min(s["y"] for s in title_spans)
+        return title, title_y, largest_size
 
     def detect_subtitle(self, spans, title_size):
-
         candidate_spans = [
             s for s in spans
             if title_size - 3 < s["size"] < title_size
         ]
-
         candidate_spans.sort(key=lambda s: s["y"])
-
         subtitle_lines = []
-
         for s in candidate_spans[:5]:
             subtitle_lines.append(s["text"])
-
+        if not subtitle_lines:
+            return None
         subtitle = " ".join(subtitle_lines)
-
         return subtitle
 
     # ------------------------------------------------------
