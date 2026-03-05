@@ -274,12 +274,12 @@ class ACMPDFConverter:
 
     def detect_authors(self, spans, title_y):
         name_pattern = re.compile(
-            r'\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+(?:\s(?:van|de|von)\s[A-Z][a-z]+)?'
+            r'\b[A-Z][a-z]+(?:\s[A-Z]\.)?\s[A-Z][a-z]+(?:\s(?:van|de|von)\s[A-Z][a-z]+)?'
         )
         candidates = []
         for s in spans:
             # Only look near title area
-            if s["y"] < title_y or s["y"] > title_y + 150:
+            if s["y"] < title_y + 80 or s["y"] > title_y + 260:
                 continue
             matches = name_pattern.findall(s["text"])
             for m in matches:
@@ -293,30 +293,35 @@ class ACMPDFConverter:
     # ------------------------------------------------------
 
     def detect_title(self, spans):
-        spans_sorted = sorted(spans, key=lambda s: -s["size"])
-        largest_size = spans_sorted[0]["size"]
+        # Only consider top region of page
+        top_spans = [s for s in spans if s["y"] < 350]
+        # Sort by font size
+        spans_sorted = sorted(top_spans, key=lambda s: -s["size"])
+        largest = spans_sorted[0]["size"]
+        # Allow a wider tolerance
         title_spans = [
-            s for s in spans
-            if abs(s["size"] - largest_size) < 0.5
+            s for s in top_spans
+            if largest - 2 <= s["size"] <= largest
         ]
-        title_spans.sort(key=lambda s: s["y"])
+        # Sort in reading order
+        title_spans.sort(key=lambda s: (s["y"], s["x"]))
         title = " ".join(s["text"] for s in title_spans)
         title_y = min(s["y"] for s in title_spans)
-        return title, title_y, largest_size
+        return title, title_y, largest
 
-    def detect_subtitle(self, spans, title_size):
-        candidate_spans = [
+    def detect_subtitle(self, spans, title_y):
+        candidates = [
             s for s in spans
-            if title_size - 3 < s["size"] < title_size
+            if title_y < s["y"] < title_y + 120
+            and 9 < s["size"] < 13
         ]
-        candidate_spans.sort(key=lambda s: s["y"])
-        subtitle_lines = []
-        for s in candidate_spans[:5]:
-            subtitle_lines.append(s["text"])
-        if not subtitle_lines:
+        candidates.sort(key=lambda s: (s["y"], s["x"]))
+        lines = []
+        for s in candidates[:6]:
+            lines.append(s["text"])
+        if not lines:
             return None
-        subtitle = " ".join(subtitle_lines)
-        return subtitle
+        return " ".join(lines)
 
     # ------------------------------------------------------
     # REFERENCE SECTION EXTRACTION
