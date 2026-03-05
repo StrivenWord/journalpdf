@@ -435,12 +435,47 @@ class ACMPDFConverter:
 
     def convert(self):
 
+        # --------------------------------
+        # 1. Extract column text
+        # --------------------------------
         self.extract_column_text()
-        self.extract_metadata()
-        self.extract_references()
-        self.clean_and_structure()
-        self.detect_title()
 
+        # --------------------------------
+        # 2. Metadata detection from first page
+        # --------------------------------
+        first_page = self.doc[0]
+        spans = get_spans(first_page)
+
+        if spans:
+            title, title_y, title_size = self.detect_title(spans)
+
+            if title:
+                self.metadata["title"] = title
+
+            subtitle = self.detect_subtitle(spans, title_size)
+            if subtitle:
+                self.metadata["subtitle"] = subtitle
+
+            self.detect_authors(spans, title_y)
+
+        # --------------------------------
+        # 3. Extract remaining metadata
+        # --------------------------------
+        self.extract_metadata()
+
+        # --------------------------------
+        # 4. Split references
+        # --------------------------------
+        self.extract_references()
+
+        # --------------------------------
+        # 5. Clean body text
+        # --------------------------------
+        self.clean_and_structure()
+
+        # --------------------------------
+        # 6. Build final markdown
+        # --------------------------------
         markdown = self.generate_yaml()
         markdown += self.body_text.strip() + "\n\n"
         markdown += self.format_references()
