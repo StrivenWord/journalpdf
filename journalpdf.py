@@ -272,7 +272,7 @@ class ACMPDFConverter:
     # AUTHOR AND CO-AUTHORS EXTRACTION
     # ------------------------------------------------------
 
-    def detect_authors(self, spans, title_y)
+    def detect_authors(self, spans, title_y):
         name_pattern = re.compile(
             r'\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+(?:\s(?:van|de|von)\s[A-Z][a-z]+)?'
         )
