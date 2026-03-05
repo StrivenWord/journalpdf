@@ -57,6 +57,26 @@ def flatten_block_text(text):
     return re.sub(r'\s*\n\s*', ' ', text).strip()
 
 
+def get_spans(page):
+    data = page.get_text("dict")
+    spans = []
+    for block in data["blocks"]:
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                text = span["text"].strip()
+                if not text:
+                    continue
+
+                spans.append({
+                    "text": text,
+                    "size": span["size"],
+                    "y": span["bbox"][1],
+                    "x": span["bbox"][0]
+                })
+
+    return spans
+
+
 # ==========================================================
 # Core Pipeline Class
 # ==========================================================
@@ -241,12 +261,7 @@ class ACMPDFConverter:
         if doi_match:
             self.metadata["doi"] = doi_match.group(0)
 
-        # Title (first large title-like line)
-        lines = text.splitlines()
-        for line in lines[:40]:
-            if len(line.strip()) > 10 and not line.islower():
-                self.metadata["title"] = line.strip()
-                break
+        # Title is not being extracted here. That's done in detect_title()
 
         # Authors
         author_candidates = re.findall(
@@ -263,6 +278,54 @@ class ACMPDFConverter:
 
         self.metadata["source"] = "PDF"
         self.metadata["extracted"] = datetime.now().strftime("%Y-%m-%d")
+
+    # ------------------------------------------------------
+    # TITLE AND SUBTITLE EXTRACTION
+    # ------------------------------------------------------
+
+    def detect_title(self):
+
+        # Use the first page to detect title
+        first_page = self.doc[0]
+
+        spans = get_spans(first_page)
+
+        if not spans:
+            return
+
+        spans_sorted = sorted(spans, key=lambda s: -s["size"])
+
+        largest_size = spans_sorted[0]["size"]
+
+        title_spans = [
+            s for s in spans
+            if abs(s["size"] - largest_size) < 0.5
+        ]
+
+        title_spans.sort(key=lambda s: s["y"])
+
+        title = " ".join(s["text"] for s in title_spans)
+
+        self.metadata["title"] = title
+
+
+    def detect_subtitle(self, spans, title_size):
+
+        candidate_spans = [
+            s for s in spans
+            if title_size - 3 < s["size"] < title_size
+        ]
+
+        candidate_spans.sort(key=lambda s: s["y"])
+
+        subtitle_lines = []
+
+        for s in candidate_spans[:5]:
+            subtitle_lines.append(s["text"])
+
+        subtitle = " ".join(subtitle_lines)
+
+        return subtitle
 
     # ------------------------------------------------------
     # REFERENCE SECTION EXTRACTION
@@ -368,6 +431,7 @@ class ACMPDFConverter:
         self.extract_metadata()
         self.extract_references()
         self.clean_and_structure()
+        self.detect_title()
 
         markdown = self.generate_yaml()
         markdown += self.body_text.strip() + "\n\n"
