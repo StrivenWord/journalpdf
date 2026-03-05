@@ -263,21 +263,29 @@ class ACMPDFConverter:
 
         # Title is not being extracted here. That's done in detect_title()
 
-        # Authors
-        author_candidates = re.findall(
-            r'([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)',
-            text[:3000]
-        )
-        if author_candidates:
-            self.metadata["author"] = ", ".join(dict.fromkeys(author_candidates[:6]))
-
-        # Year
-        year_match = re.search(r'(19|20)\d{2}', text)
-        if year_match:
-            self.metadata["date"] = f"{year_match.group(0)}-01"
+        # Authors in detect_authors()
 
         self.metadata["source"] = "PDF"
         self.metadata["extracted"] = datetime.now().strftime("%Y-%m-%d")
+
+    # ------------------------------------------------------
+    # AUTHOR AND CO-AUTHORS EXTRACTION
+    # ------------------------------------------------------
+
+    def detect_authors(self, spans, title_y)
+        name_pattern = re.compile(
+            r'\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+(?:\s(?:van|de|von)\s[A-Z][a-z]+)?'
+        )
+        candidates = []
+        for s in spans:
+            if s["y"] < title_y:
+                continue
+            matches = name_pattern.findall(s["text"])
+            for m in matches:
+                candidates.append(m)
+        authors = list(dict.fromkeys(candidates))
+        if authors:
+            self.metadata["author"] = authors[:6]
 
     # ------------------------------------------------------
     # TITLE AND SUBTITLE EXTRACTION
