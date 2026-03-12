@@ -1,0 +1,16 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# This project doesn't use main.py, which might get put into the directory through automation
+main.py
+
+# Filesystem garbage
+.DS_Store
