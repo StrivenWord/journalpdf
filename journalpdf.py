@@ -726,7 +726,7 @@ class ACMPDFConverter:
             else:
                 yaml_lines.append(f'{k}: "{v}"')
         yaml_lines.append("---\n")
-        return "\n".join(yaml_lines)
+        return "\n".join(yaml_lines) + "\n\n" # blank line after YAML block
 
     # ------------------------------------------------------
     # FULL CONVERSION
