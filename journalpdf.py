@@ -126,7 +126,6 @@ def get_spans(page):
 # ==========================================================
 
 class ACMPDFConverter:
-
     def __init__(self, pdf_path):
         self.pdf_path = pdf_path
         self.doc = fitz.open(pdf_path)
