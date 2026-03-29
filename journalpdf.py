@@ -1,13 +1,13 @@
-# Alpha Version 1 - Finalized 2026-03-29
+# Alpha Version 2 - Developing March 2026
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
 
 Features:
-1. True two-column reconstruction via line-level bounding boxes
-2. Batch directory conversion
-3. Structured References extraction
-4. Refactored object-oriented pipeline
+1. True three-layer architecture (PDF -> Document Model -> Markdown)
+2. Type-safe classification with Enums
+3. Heuristic paragraph and heading level detection
+4. Structured Document Object Model (DOM)
 
 Designed for ACM journals, proceedings, and similar scholarly PDFs.
 """
@@ -16,6 +16,7 @@ import re
 import sys
 import argparse
 import pymupdf as fitz  # PyMuPDF
+from enum import Enum, auto
 from pathlib import Path
 from datetime import datetime
 from unidecode import unidecode
@@ -26,6 +27,46 @@ AUTHOR_BIO_FONTS = {"GaramondThree-BoldSC"}
 ABSTRACT_FONTS = {"OfficinaSans-BoldItalic"}
 FOOTER_HEADER_FONTS = {"Gill-Blk", "Gill-Bk"}
 REFERENCE_HEADING_TEXT = {"References", "REFERENCES"}
+
+
+# ==========================================================
+# Enums and Model Classes (Alpha Version 2)
+# ==========================================================
+
+class LineType(Enum):
+    HEADING = auto()
+    BODY = auto()
+    ABSTRACT = auto()
+    FIGURE_CAPTION = auto()
+    REFERENCE_HEADING = auto()
+    AUTHOR_BIO = auto()
+    TITLE = auto()
+    AUTHOR_BYLINE = auto()
+    FOOTER_HEADER = auto()
+    NOISE = auto()
+
+
+class BlockType(Enum):
+    PARAGRAPH = auto()
+    HEADING = auto()
+    REFERENCE_HEADING = auto()
+    AUTHOR_BIO = auto()
+    TITLE = auto()
+    AUTHOR_BYLINE = auto()
+    ABSTRACT = auto()
+
+
+class Block:
+    def __init__(self, type: BlockType, text: str, level: int = None):
+        self.type = type
+        self.text = text
+        self.level = level  # for headings
+
+
+class Document:
+    def __init__(self):
+        self.blocks: list[Block] = []
+        self.metadata = {}
 
 
 # ==========================================================
@@ -130,11 +171,6 @@ class ACMPDFConverter:
     def __init__(self, pdf_path):
         self.pdf_path = pdf_path
         self.doc = fitz.open(pdf_path)
-        self.raw_text = ""
-        self.metadata = {}
-        self.body_text = ""
-        self.references = ""
-        self.author_bios = ""
 
     # ------------------------------------------------------
     # LINE-LEVEL EXTRACTION
@@ -160,10 +196,7 @@ class ACMPDFConverter:
     def get_page_lines(self, page):
         """
         Extract individual text lines with classification metadata.
-        Returns list of dicts: x0, y0, x1, y1, text, line_type, spans.
-        line_type is one of: heading, body, abstract, figure_caption,
-        reference_heading, author_bio, title, author_byline,
-        footer_header, noise.
+        Returns list of dicts: x0, y0, x1, y1, text, line_type (LineType), spans.
         """
         data = page.get_text("dict")
         body_size = self._estimate_body_size(data)
@@ -199,26 +232,26 @@ class ACMPDFConverter:
         """Classify a line by its role in the document."""
         # Footer/header
         if _font_matches(first_font, FOOTER_HEADER_FONTS):
-            return "footer_header"
+            return LineType.FOOTER_HEADER
         # Title font
         if _font_matches(first_font, TITLE_FONT_PREFIXES):
-            return "title"
+            return LineType.TITLE
         # Abstract/intro blurb font
         if _font_matches(first_font, ABSTRACT_FONTS):
-            return "abstract"
+            return LineType.ABSTRACT
         # Decorative noise (single-char non-alnum)
         stripped = text.strip()
         if len(stripped) <= 2 and not stripped.isalnum():
-            return "noise"
+            return LineType.NOISE
         # Reference heading in non-heading font (e.g., GaramondThree-BoldSC)
         # Check before narrow-block filter since "References" can be narrow.
         if (stripped in REFERENCE_HEADING_TEXT
                 and _font_matches(first_font, AUTHOR_BIO_FONTS)):
-            return "reference_heading"
+            return LineType.REFERENCE_HEADING
         # Very narrow blocks (margin labels, sidebar text)
         width = x1 - x0
         if width < page_width * 0.08:
-            return "noise"
+            return LineType.NOISE
         # Section heading: all spans are heading font at body size+
         non_empty = [s for s in spans if s["text"].strip()]
         all_heading_font = all(
@@ -229,60 +262,30 @@ class ACMPDFConverter:
         if all_heading_font and not re.match(r'^(Figure|Table|Fig\.)\s', text):
             # Distinguish section headings from figure captions
             if stripped in REFERENCE_HEADING_TEXT:
-                return "reference_heading"
-            return "heading"
+                return LineType.REFERENCE_HEADING
+            return LineType.HEADING
         # Figure/table caption (bold heading font, smaller size)
         if (all(_font_matches(s.get("font", ""), HEADING_FONTS)
                 for s in non_empty)
                 and first_size < body_size):
-            return "figure_caption"
+            return LineType.FIGURE_CAPTION
         if re.match(r'^(Figure|Table|Fig\.)\s+\d', text):
-            return "figure_caption"
+            return LineType.FIGURE_CAPTION
         # Author bio line (bold small-caps name font)
         if (_font_matches(first_font, AUTHOR_BIO_FONTS)
                 and first_size <= body_size + 1
                 and stripped not in REFERENCE_HEADING_TEXT):
-            return "author_bio"
+            return LineType.AUTHOR_BIO
         # Author byline (italic, larger than body, near title area)
         if ("Italic" in first_font and first_size > body_size + 2
                 and "Semibold" not in first_font
                 and "Bold" not in first_font):
-            return "author_byline"
-        return "body"
+            return LineType.AUTHOR_BYLINE
+        return LineType.BODY
 
     # ------------------------------------------------------
     # COLUMN-AWARE EXTRACTION
     # ------------------------------------------------------
-
-    def extract_column_text(self):
-        """Build reading-order text from all pages."""
-        pages_text = []
-        for page in self.doc:
-            page_height = page.rect.height
-            page_width = page.rect.width
-            top_margin = page_height * 0.08
-            bottom_margin = page_height * 0.93
-            lines = self.get_page_lines(page)
-            # Filter non-content lines
-            filtered = []
-            for ln in lines:
-                lt = ln["line_type"]
-                if lt in ("footer_header", "title", "noise",
-                          "author_byline"):
-                    continue
-                if ln["y0"] < top_margin and lt != "abstract":
-                    continue
-                if ln["y1"] > bottom_margin:
-                    continue
-                filtered.append(ln)
-            if not filtered:
-                pages_text.append("")
-                continue
-            page_text = self._order_page_lines(
-                filtered, page_width
-            )
-            pages_text.append(page_text)
-        self.raw_text = "\n".join(pages_text)
 
     def _order_page_lines(self, lines, page_width):
         """
@@ -302,18 +305,16 @@ class ACMPDFConverter:
                 ln["_col"] = "left"
             else:
                 ln["_col"] = "right"
-        # Find where two-column layout begins: first y where there are
-        # both left and right lines overlapping vertically
+        # Find where two-column layout begins
         col_start_y = self._find_column_start(lines)
         # Split lines into pre-column and column regions
         pre_column = [ln for ln in lines if ln["y0"] < col_start_y]
         in_column = [ln for ln in lines if ln["y0"] >= col_start_y]
-        # Pre-column: group abstract lines first (they flow into body),
-        # then remaining lines by y position.
+        # Pre-column: group abstract lines first, then remaining lines
         abstract_lines = [ln for ln in pre_column
-                          if ln["line_type"] == "abstract"]
+                          if ln["line_type"] is LineType.ABSTRACT]
         other_pre = [ln for ln in pre_column
-                     if ln["line_type"] != "abstract"]
+                     if ln["line_type"] is not LineType.ABSTRACT]
         abstract_lines.sort(key=lambda ln: (ln["y0"], ln["x0"]))
         other_pre.sort(key=lambda ln: (ln["y0"], ln["x0"]))
         pre_column = abstract_lines + other_pre
@@ -322,15 +323,10 @@ class ACMPDFConverter:
         right_col = [ln for ln in in_column if ln["_col"] == "right"]
         left_col.sort(key=lambda ln: ln["y0"])
         right_col.sort(key=lambda ln: ln["y0"])
-        ordered = pre_column + left_col + right_col
-        return self._lines_to_markdown(ordered)
+        return pre_column + left_col + right_col
 
     def _find_column_start(self, lines):
-        """
-        Find the y coordinate where two-column layout begins.
-        This is the first y where left and right lines coexist at
-        overlapping vertical positions.
-        """
+        """Find the y coordinate where two-column layout begins."""
         left_lines = sorted(
             [ln for ln in lines if ln["_col"] == "left"],
             key=lambda ln: ln["y0"]
@@ -340,103 +336,142 @@ class ACMPDFConverter:
             key=lambda ln: ln["y0"]
         )
         if not left_lines or not right_lines:
-            # No two-column layout; return a large value
             return float("inf")
-        # For each left line, check if any right line overlaps vertically
-        # within a tolerance band
         band = 30  # vertical overlap tolerance
         for ll in left_lines:
             for rl in right_lines:
-                # Check if they overlap: ll.y0..ll.y1 overlaps rl.y0..rl.y1
                 overlap = (
                     ll["y0"] <= rl["y1"] + band
                     and rl["y0"] <= ll["y1"] + band
                 )
                 if overlap:
-                    # Skip if the left line is abstract (it's an intro blurb,
-                    # not a true column)
-                    if ll["line_type"] == "abstract":
+                    if ll["line_type"] is LineType.ABSTRACT:
                         continue
                     return min(ll["y0"], rl["y0"])
         return float("inf")
 
-    def _lines_to_markdown(self, lines):
-        """
-        Convert ordered lines into markdown text.
-        Merges consecutive body lines into paragraphs.
-        """
+    # ------------------------------------------------------
+    # ALPHA VERSION 2 PIPELINE
+    # ------------------------------------------------------
+
+    def extract_raw_lines(self):
+        """Extract all content lines from the PDF in reading order."""
+        all_ordered_lines = []
+        for page in self.doc:
+            page_height = page.rect.height
+            page_width = page.rect.width
+            top_margin = page_height * 0.08
+            bottom_margin = page_height * 0.93
+            lines = self.get_page_lines(page)
+            # Filter non-content lines
+            filtered = []
+            for ln in lines:
+                lt = ln["line_type"]
+                if lt in (LineType.FOOTER_HEADER, LineType.TITLE, LineType.NOISE,
+                          LineType.AUTHOR_BYLINE):
+                    continue
+                if ln["y0"] < top_margin and lt != LineType.ABSTRACT:
+                    continue
+                if ln["y1"] > bottom_margin:
+                    continue
+                filtered.append(ln)
+            if not filtered:
+                continue
+            ordered = self._order_page_lines(filtered, page_width)
+            all_ordered_lines.extend(ordered)
+        return all_ordered_lines
+
+    def build_document(self, lines):
+        """Transform raw lines into a structured Document object."""
+        doc = Document()
         if not lines:
-            return ""
-        paragraphs = []
-        current_lines = []
-        current_kind = "body"
+            return doc
 
-        def flush():
-            nonlocal current_lines, current_kind
-            if not current_lines:
-                return
-            text = " ".join(current_lines).strip()
-            text = re.sub(r' +', ' ', text)
-            if text:
-                paragraphs.append((current_kind, text))
-            current_lines = []
-            current_kind = "body"
+        groups = self._group_lines(lines)
+        for group in groups:
+            block = self._lines_to_block(group)
+            if block:
+                doc.blocks.append(block)
+        return doc
 
-        prev_line = None
-        for ln in lines:
-            text = ln["text"].strip()
-            if not text:
-                continue
-            lt = ln["line_type"]
-            # Figure captions - skip (lower priority per instructions)
-            if lt == "figure_caption":
-                continue
-            # Reference heading
-            if lt == "reference_heading":
-                flush()
-                paragraphs.append(("ref_heading", text))
-                prev_line = ln
-                continue
-            # Section heading
-            if lt == "heading":
-                flush()
-                paragraphs.append(("heading", text))
-                prev_line = ln
-                continue
-            # Author bio: each bio starts with a bold name
-            if lt == "author_bio":
-                # If we're already collecting a bio and this starts a new
-                # name, flush
-                if current_kind == "author_bio" and current_lines:
-                    first_span_font = ln["spans"][0].get("font", "")
-                    if _font_matches(first_span_font, AUTHOR_BIO_FONTS):
-                        flush()
-                elif current_kind != "author_bio":
-                    flush()
-                current_kind = "author_bio"
-                current_lines.append(text)
-                prev_line = ln
-                continue
-            # Abstract text: treat as body (it flows into the first paragraph)
-            if lt == "abstract":
-                lt = "body"
-            # Body text
-            if current_kind not in ("body",):
-                flush()
-            current_lines.append(text)
-            prev_line = ln
-        flush()
-        # Format to markdown
-        parts = []
-        for kind, text in paragraphs:
-            if kind == "heading":
-                parts.append(f"# {text}")
-            elif kind == "ref_heading":
-                parts.append(f"# {text}")
-            elif kind == "author_bio":
-                parts.append(text)
+    def _group_lines(self, lines):
+        """Group consecutive lines into logical clusters."""
+        if not lines:
+            return []
+        groups = []
+        current_group = [lines[0]]
+        for i in range(1, len(lines)):
+            prev = lines[i-1]
+            curr = lines[i]
+            if self._is_block_break(prev, curr):
+                groups.append(current_group)
+                current_group = [curr]
             else:
-                parts.append(text)
+                current_group.append(curr)
+        if current_group:
+            groups.append(current_group)
+        return groups
+
+    def _is_block_break(self, prev, curr):
+        """Determine if there should be a break between two lines."""
+        # Different line types always cause a break
+        if prev["line_type"] != curr["line_type"]:
+            return True
+        # Specific break logic for body/abstract text
+        if curr["line_type"] in (LineType.BODY, LineType.ABSTRACT):
+            # Vertical gap heuristic
+            vertical_gap = curr["y0"] - prev["y1"]
+            # Indentation difference heuristic
+            indent_diff = abs(curr["x0"] - prev["x0"])
+            # Paragraph break if large gap or significant indent change
+            if vertical_gap > prev["body_size"] * 1.2:
+                return True
+            if indent_diff > 10:
+                return True
+        # Headings are typically single-line or grouped by type
+        if curr["line_type"] in (LineType.HEADING, LineType.REFERENCE_HEADING):
+            return True
+        return False
+
+    def _lines_to_block(self, group):
+        """Convert a group of lines into a single Block."""
+        if not group:
+            return None
+        lt = group[0]["line_type"]
+        text = " ".join(ln["text"] for ln in group).strip()
+        text = re.sub(r' +', ' ', text)
+        if lt is LineType.HEADING:
+            level = self._detect_heading_level(text)
+            return Block(BlockType.HEADING, text, level=level)
+        elif lt is LineType.REFERENCE_HEADING:
+            return Block(BlockType.REFERENCE_HEADING, text, level=1)
+        elif lt is LineType.AUTHOR_BIO:
+            return Block(BlockType.AUTHOR_BIO, text)
+        elif lt is LineType.ABSTRACT:
+            return Block(BlockType.ABSTRACT, text)
+        elif lt is LineType.BODY:
+            return Block(BlockType.PARAGRAPH, text)
+        return None
+
+    def _detect_heading_level(self, text):
+        """Detect heading level from text pattern (e.g. '1.2.3')."""
+        match = re.match(r'^(\d+(?:\.\d+)*)\s+', text)
+        if match:
+            return len(match.group(1).split('.'))
+        return 1
+
+    def render_markdown(self, document):
+        """Convert a Document object into a Markdown string."""
+        parts = []
+        for block in document.blocks:
+            if block.type is BlockType.HEADING:
+                prefix = "#" * (block.level or 1)
+                parts.append(f"{prefix} {block.text}")
+            elif block.type is BlockType.REFERENCE_HEADING:
+                parts.append(f"# {block.text}")
+            elif block.type in (BlockType.PARAGRAPH, BlockType.ABSTRACT,
+                                BlockType.AUTHOR_BIO):
+                parts.append(block.text)
         return "\n\n".join(parts) + "\n\n"
 
     # ------------------------------------------------------
@@ -450,19 +485,34 @@ class ACMPDFConverter:
     # METADATA EXTRACTION
     # ------------------------------------------------------
 
-    def extract_metadata(self):
-        text = self.raw_text[:5000]
+    def extract_metadata(self, doc):
+        """Extract DOI and system metadata from the document model."""
+        # Use first few blocks for text-based metadata extraction
+        text = "\n".join(b.text for b in doc.blocks[:15])
         doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Z0-9]+', text, re.I)
         if doi_match:
-            self.metadata["doi"] = doi_match.group(0)
-        self.metadata["source"] = "PDF"
-        self.metadata["extracted"] = datetime.now().strftime("%Y-%m-%d")
+            doc.metadata["doi"] = doi_match.group(0)
+        doc.metadata["source"] = "PDF"
+        doc.metadata["extracted"] = datetime.now().strftime("%Y-%m-%d")
+
+    def _clean_block_text(self, text):
+        """Clean individual block text from common artifacts."""
+        text = normalize_unicode(text)
+        text = fix_hyphenation(text)
+        text = clean_common_acm_artifacts(text)
+        # Remove figure caption remnants
+        text = re.sub(r'^(Figure|Table|Fig\.)\s+\d.*$', '', text, flags=re.MULTILINE)
+        # Remove parenthetical sidebar noise
+        text = re.sub(r'\(TLG,?\s*LOC,?\s*more\)\s*', '', text)
+        # Fix URLs broken across lines
+        text = re.sub(r'(www\.\w+)\.\s+(\w+\.\w+)', r'\1.\2', text)
+        return text.strip()
 
     # ------------------------------------------------------
     # AUTHOR AND CO-AUTHORS EXTRACTION
     # ------------------------------------------------------
 
-    def detect_authors(self, spans, title_y):
+    def detect_authors(self, spans, title_y, doc):
         """Detect author names near the title using font and position."""
         # First try: look for italic spans near title (ACM author bylines)
         byline_spans = [
@@ -482,7 +532,7 @@ class ACMPDFConverter:
             )
             names = name_pat.findall(byline_text)
             if names:
-                self.metadata["author"] = list(dict.fromkeys(names))[:10]
+                doc.metadata["author"] = list(dict.fromkeys(names))[:10]
                 return
         # Fallback: general name pattern
         name_pattern = re.compile(
@@ -498,7 +548,7 @@ class ACMPDFConverter:
             candidates.extend(name_pattern.findall(s["text"]))
         authors = list(dict.fromkeys(candidates))
         if authors:
-            self.metadata["author"] = authors[:10]
+            doc.metadata["author"] = authors[:10]
 
     # ------------------------------------------------------
     # TITLE AND SUBTITLE EXTRACTION
@@ -573,152 +623,12 @@ class ACMPDFConverter:
         return " ".join(lines)
 
     # ------------------------------------------------------
-    # REFERENCE SECTION EXTRACTION
-    # ------------------------------------------------------
-
-    def extract_references(self):
-        """Split body text from references section."""
-        patterns = [
-            r'\n# References\n',
-            r'\n# REFERENCES\n',
-            r'\nReferences\n',
-            r'\nREFERENCES\n',
-        ]
-        for pat in patterns:
-            match = re.search(pat, self.raw_text)
-            if match:
-                self.body_text = self.raw_text[:match.start()]
-                self.references = self.raw_text[match.end():]
-                return
-        self.body_text = self.raw_text
-
-    def format_references(self):
-        """Format references as numbered list items."""
-        if not self.references:
-            return ""
-        text = self.references.strip()
-        # Collapse whitespace
-        text = re.sub(r'\s+', ' ', text)
-        # Detect where author bios begin (Name (email) is a...)
-        bio_match = re.search(
-            r'\b[A-Z][a-z]+ (?:[A-Z]\. )?[A-Z][a-z]+'
-            r'(?:-[A-Z][a-z]+)?\s*\([^)]+@[^)]+\)\s+is\s',
-            text
-        )
-        ref_text = text
-        self.author_bios = ""
-        if bio_match:
-            ref_text = text[:bio_match.start()].strip()
-            self.author_bios = text[bio_match.start():].strip()
-        # Split on numbered reference pattern: "N. Author"
-        entries = re.split(r'(?=\b\d{1,2}\.\s+[A-Z])', ref_text)
-        formatted = "# References\n"
-        for entry in entries:
-            entry = entry.strip()
-            if not entry or len(entry) < 10:
-                continue
-            entry = re.sub(r'^\d{1,2}\.\s+', '', entry)
-            entry = fix_hyphenation(entry)
-            formatted += f"{entry}\n"
-        return formatted
-
-    def format_author_bios(self):
-        """Format author bio section with bold names."""
-        if not self.author_bios:
-            return ""
-        text = self.author_bios.strip()
-        # Remove copyright notices
-        text = re.sub(
-            r'\s*\u00a9\s*\d{4}\s+ACM\b.*$', '', text
-        )
-        text = re.sub(
-            r'\s*\(c\)\s*\d{4}\s+ACM\b.*$', '', text, flags=re.I
-        )
-        # Split on email pattern (each bio starts with Name (email))
-        entries = re.split(
-            r'(?=\b[A-Z][a-z]+ (?:[A-Z]\. )?[A-Z][a-z]+'
-            r'(?:-[A-Z][a-z]+)?\s*\([^)]+@[^)]+\))',
-            text
-        )
-        formatted = "\n------\n\n"
-        for entry in entries:
-            entry = entry.strip()
-            if not entry:
-                continue
-            # Bold the name (text before the parenthetical email)
-            entry = re.sub(
-                r'^([A-Z][a-z]+ (?:[A-Z]\. )?[A-Z][a-z]+(?:-[A-Z][a-z]+)?)',
-                r'**\1**',
-                entry
-            )
-            formatted += f"{entry}\n"
-        formatted += "\n------"
-        return formatted
-
-    # ------------------------------------------------------
-    # CLEAN + STRUCTURE
-    # ------------------------------------------------------
-
-    def clean_and_structure(self):
-        text = normalize_unicode(self.body_text)
-        text = fix_hyphenation(text)
-        text = clean_common_acm_artifacts(text)
-        # Remove figure caption lines that leaked through
-        text = re.sub(r'^Figure:.*$', '', text, flags=re.MULTILINE)
-        # Remove parenthetical sidebar noise like "(TLG, LOC, more)"
-        text = re.sub(r'\(TLG,?\s*LOC,?\s*more\)\s*', '', text)
-        # Fix URLs broken across lines (e.g., "www.perseus. tufts.edu")
-        text = re.sub(
-            r'(www\.\w+)\.\s+(\w+\.\w+)', r'\1.\2', text
-        )
-        # Merge lines inside paragraphs (single newlines become spaces)
-        text = re.sub(r'(?<!\n)\n(?!\n|[-*\u2022#])', ' ', text)
-        # Collapse excessive blank lines
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        # Merge paragraph fragments split across page boundaries:
-        # If a paragraph doesn't end with sentence-ending punctuation,
-        # merge it with the following non-heading paragraph.
-        text = self._merge_split_paragraphs(text)
-        self.body_text = text
-
-    def _merge_split_paragraphs(self, text):
-        """
-        Merge consecutive body paragraphs that were split at page
-        boundaries. A paragraph ending without sentence-ending
-        punctuation is joined with the next paragraph if the next
-        paragraph doesn't start with a heading marker.
-        """
-        paragraphs = text.split("\n\n")
-        merged = []
-        i = 0
-        while i < len(paragraphs):
-            para = paragraphs[i]
-            stripped = para.strip()
-            # Never merge headings forward or backward
-            is_heading = stripped.startswith('#')
-            # If this is a body paragraph that doesn't end with sentence
-            # punctuation, merge with the next non-heading paragraph.
-            while (i + 1 < len(paragraphs)
-                   and stripped
-                   and not is_heading
-                   and not stripped.endswith(('.', '?', '!', ':', '"'))
-                   and not stripped.endswith("''")
-                   and not paragraphs[i + 1].strip().startswith('#')
-                   and paragraphs[i + 1].strip()):
-                i += 1
-                para = para.rstrip() + " " + paragraphs[i].lstrip()
-                stripped = para.strip()
-            merged.append(para)
-            i += 1
-        return "\n\n".join(merged)
-
-    # ------------------------------------------------------
     # YAML
     # ------------------------------------------------------
 
-    def generate_yaml(self):
+    def generate_yaml(self, doc):
         yaml_lines = ["---"]
-        for k, v in self.metadata.items():
+        for k, v in doc.metadata.items():
             if isinstance(v, list):
                 yaml_lines.append(f"{k}:")
                 for item in v:
@@ -726,43 +636,43 @@ class ACMPDFConverter:
             else:
                 yaml_lines.append(f'{k}: "{v}"')
         yaml_lines.append("---\n")
-        return "\n".join(yaml_lines) + "\n\n" # blank line after YAML block
+        return "\n".join(yaml_lines) + "\n\n"
 
     # ------------------------------------------------------
     # FULL CONVERSION
     # ------------------------------------------------------
 
     def convert(self):
-        # 1. Extract column text
-        self.extract_column_text()
-        # 2. Metadata from first pages
+        """Alpha Version 2 pipeline execution."""
+        # 1. Extraction Layer
+        raw_lines = self.extract_raw_lines()
+        
+        # 2. Document Model Layer
+        doc = self.build_document(raw_lines)
+        
+        # 3. Metadata Layer
         for pg_idx in range(min(2, len(self.doc))):
             spans = get_spans(self.doc[pg_idx])
             if not spans:
                 continue
             title, title_y, title_size = self.detect_title(spans)
             if title:
-                self.metadata["title"] = title
+                doc.metadata["title"] = title
                 subtitle = self.detect_subtitle(spans, title_y)
                 if subtitle:
-                    self.metadata["subtitle"] = subtitle
-                self.detect_authors(spans, title_y)
+                    doc.metadata["subtitle"] = subtitle
+                self.detect_authors(spans, title_y, doc)
                 break
-        # 3. Remaining metadata
-        self.extract_metadata()
-        # 4. Split references
-        self.extract_references()
-        # 5. Clean body
-        self.clean_and_structure()
-        # 6. Build markdown
-        markdown = self.generate_yaml()
-        markdown += self.body_text.strip() + "\n\n"
-        refs = self.format_references()
-        if refs:
-            markdown += "\n" + refs
-        bios = self.format_author_bios()
-        if bios:
-            markdown += "\n" + bios
+        self.extract_metadata(doc)
+        
+        # 4. Refinement Layer
+        for block in doc.blocks:
+            block.text = self._clean_block_text(block.text)
+            
+        # 5. Rendering Layer
+        markdown = self.generate_yaml(doc)
+        markdown += self.render_markdown(doc)
+        
         return markdown
 
 
