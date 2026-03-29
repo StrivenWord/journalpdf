@@ -1,3 +1,4 @@
+# Alpha Version 0.1 - Finalized 2026-03-29
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
