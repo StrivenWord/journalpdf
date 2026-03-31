@@ -499,9 +499,9 @@ class PdfConverter:
         text = "\n".join(b.text for b in doc.blocks[:15])
         doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Z0-9]+', text, re.I)
         if doi_match:
-            doc.metadata["doi"] = doi_match.group(0)
-        doc.metadata["source"] = "PDF"
-        doc.metadata["extracted"] = datetime.now().strftime("%Y-%m-%d")
+            doc.frontmatter.doi = doi_match.group(0)
+        doc.frontmatter.source = "PDF"
+        doc.frontmatter.extracted = datetime.now().strftime("%Y-%m-%d")
 
     def _clean_block_text(self, text):
         """Clean individual block text from common artifacts."""
@@ -540,7 +540,7 @@ class PdfConverter:
             )
             names = name_pat.findall(byline_text)
             if names:
-                doc.metadata["author"] = list(dict.fromkeys(names))[:10]
+                doc.frontmatter.author = list(dict.fromkeys(names))[:10]
                 return
         # Fallback: general name pattern
         name_pattern = re.compile(
@@ -556,7 +556,7 @@ class PdfConverter:
             candidates.extend(name_pattern.findall(s["text"]))
         authors = list(dict.fromkeys(candidates))
         if authors:
-            doc.metadata["author"] = authors[:10]
+            doc.frontmatter.author = authors[:10]
 
     # ------------------------------------------------------
     # TITLE AND SUBTITLE EXTRACTION
@@ -665,10 +665,10 @@ class PdfConverter:
                 continue
             title, title_y, title_size = self.detect_title(spans)
             if title:
-                doc.metadata["title"] = title
+                doc.frontmatter.title = title
                 subtitle = self.detect_subtitle(spans, title_y)
                 if subtitle:
-                    doc.metadata["subtitle"] = subtitle
+                    doc.frontmatter.subtitle = subtitle
                 self.detect_authors(spans, title_y, doc)
                 break
         self.extract_metadata(doc)
