@@ -62,9 +62,17 @@ class Block:
         self.text = text
         self.level = level  # for headings
 
+class FrontMatter:
+    def __init__(self):
+        self.title = None
+        self.subtitle = None
+        self.authors = []
+        self.affiliations = []
+        self.doi None
 
 class Document:
     def __init__(self):
+        self.frontmatter = FrontMatter()
         self.blocks: list[Block] = []
         self.metadata = {}
 
