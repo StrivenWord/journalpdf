@@ -9,6 +9,10 @@ wheels/
 # Virtual environments
 .venv
 
+# Other temporary file (i.e., from text editor enviornment settings)
+.swp
+*.swp
+
 # This project doesn't use main.py, which might get put into the directory through automation
 main.py
 
