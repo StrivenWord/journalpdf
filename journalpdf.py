@@ -68,7 +68,7 @@ class FrontMatter:
         self.subtitle = None
         self.authors = []
         self.affiliations = []
-        self.doi None
+        self.doi = None
 
 class Document:
     def __init__(self):
