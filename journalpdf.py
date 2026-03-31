@@ -167,7 +167,7 @@ def get_spans(page):
 # Core Pipeline Class
 # ==========================================================
 
-class ACMPDFConverter:
+class PdfConverter:
     def __init__(self, pdf_path):
         self.pdf_path = pdf_path
         self.doc = fitz.open(pdf_path)
@@ -683,7 +683,7 @@ class ACMPDFConverter:
 def batch_convert(directory):
     pdf_files = list(Path(directory).glob("*.pdf"))
     for pdf in pdf_files:
-        converter = ACMPDFConverter(str(pdf))
+        converter = PdfConverter(str(pdf))
         output = converter.convert()
         output_path = pdf.with_suffix(".md")
         with open(output_path, "w", encoding="utf-8") as f:
@@ -710,7 +710,7 @@ def main():
         print("Provide input PDF or use --batch")
         sys.exit(1)
     output_path = args.output or Path(args.input).with_suffix(".md")
-    converter = ACMPDFConverter(args.input)
+    converter = PdfConverter(args.input)
     markdown = converter.convert()
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(markdown)
