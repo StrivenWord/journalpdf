@@ -39,6 +39,8 @@ devin.c.jean@vanderbilt.edu
 
 gordon.stein@vanderbilt.edu
 
+Abstract
+
 This paper introduces PyBlox, a novel hybrid programming environment designed to facilitate the transition from block-based programming to text-based programming in Python. The transition from visual to textual programming represents a significant pedagogical challenge that PyBlox addresses by preserving key programming features that make block-based environments engaging while introducing students to Python's syntax. PyBlox implements a hybrid transitional approach with a text-based editor augmented by a palette of graphical blocks. It maintains continuity across environments by faithfully implementing the concurrency model, graphics capabilities, and networking features of modern block-based environments. A classroom study with 25 high school students revealed that PyBlox effectively supports feature discovery through its drag-and-drop block palette, text completion suggestions, and documentation panel. Analysis of project construction logs showed that 63% of block insertions involved first-time feature discovery, with students gradually shifting toward manual text editing as they gained Python proficiency. This study demonstrates PyBlox's effectiveness in providing a gentle slope between blockbased and text-based programming, expanding the accessibility of text-based programming while maintaining student engagement.
 
 CCS Concepts * Software and its engineering - Integrated and visual development environments; Software usability; * Social and professional topics - Computer science education; * Humancentered computing - Graphical user interfaces; User stud-
