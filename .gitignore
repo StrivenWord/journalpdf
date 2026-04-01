@@ -1,3 +1,6 @@
+# Ignore PDF files
+*.pdf
+
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -18,3 +21,4 @@ main.py
 
 # Filesystem garbage
 .DS_Store
+
