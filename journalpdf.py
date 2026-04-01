@@ -245,7 +245,10 @@ class PdfConverter:
         if _font_matches(first_font, TITLE_FONT_PREFIXES):
             return LineType.TITLE
         # Abstract/intro blurb font
-        if _font_matches(first_font, ABSTRACT_FONTS):
+        # if _font_matches(first_font, ABSTRACT_FONTS):
+        #     return LineType.ABSTRACT
+        text_norm = text.strip().lower()
+        if re.fullmatch(r"abstract[:.\-–—]?:", text_norm):
             return LineType.ABSTRACT
         # Decorative noise (single-char non-alnum)
         stripped = text.strip()
