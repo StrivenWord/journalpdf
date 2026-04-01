@@ -1,4 +1,4 @@
-# Alpha Version 2 - Developing March 2026
+# Alpha Version 2.1 - 2026-04-01
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
@@ -635,16 +635,29 @@ class PdfConverter:
     # ------------------------------------------------------
 
     def generate_yaml(self, doc):
+        fm = doc.frontmatter
         yaml_lines = ["---"]
-        for k, v in doc.metadata.items():
-            if isinstance(v, list):
-                yaml_lines.append(f"{k}:")
-                for item in v:
-                    yaml_lines.append(f'  - "{item}"')
-            else:
-                yaml_lines.append(f'{k}: "{v}"')
+        if fm.title:
+            yaml_lines.append(f'title: "{fm.title}"')
+        if fm.subtitle:
+            yaml_lines.append(f'subtitle: "{fm.subtitle}"')
+        if fm.authors:
+            yaml_lines.append("authors:")
+            for x in fm.authors:
+                yaml_lines.append(f'  - "{x}"') # indentation and bullet point for multiple authors
+        if fm.affiliations:
+            yaml_lines.append("affiliations:")
+            for y in fm.affiliations:
+                yaml_lines.append(f'  - "{y}"')
+        if fm.doi:
+            yaml_lines.append(f'doi: "{fm.doi}"')
+        # selected metadata projected into frontmatter
+        if "extracted" in doc.metadata:
+            yaml_lines.append(f'extracted: "{doc.metadata["extracted"]}"')
         yaml_lines.append("---\n")
         return "\n".join(yaml_lines) + "\n\n"
+
+
 
     # ------------------------------------------------------
     # FULL CONVERSION
