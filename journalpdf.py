@@ -66,9 +66,16 @@ class FrontMatter:
     def __init__(self):
         self.title = None
         self.subtitle = None
-        self.authors = []
-        self.affiliations = []
+        # structured authors
+        self.authors = []       # list[str]
+        # structured affiliations
+        self.affiliations = []  # list[str]
+        # other metadata
         self.doi = None
+        self.published_date = None
+        self.conference = None
+        # optional raw capture (debugging)
+        self._raw_lines = []
 
 class Document:
     def __init__(self):
