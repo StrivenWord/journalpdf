@@ -646,9 +646,11 @@ class PdfConverter:
     # ------------------------------------------------------
 
     def extract_frontmatter(self, doc):
-        spans = get_spans(self.doc[0])
-        top_spans = [s for s in spans if s["y"] < FRONTMATTER_Y_LIMIT]
-        title, title_y, title_size = self.detect_title(spans)
+        """
+        Extract structured frontmatter (title, authors, affiliations)
+        from the first page using span-level data.
+        """
+        
 
     # ------------------------------------------------------
     # YAML
