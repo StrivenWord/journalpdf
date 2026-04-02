@@ -508,11 +508,13 @@ class PdfConverter:
         """Extract DOI and system metadata from the document model."""
         # Use first few blocks for text-based metadata extraction
         text = "\n".join(b.text for b in doc.blocks[:15])
-        doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Z0-9]+', text, re.I)
-        if doi_match:
-            doc.frontmatter.doi = doi_match.group(0)
-        doc.frontmatter.source = "PDF"
-        doc.frontmatter.extracted = datetime.now().strftime("%Y-%m-%d")
+        # doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Z0-9]+', text, re.I)
+        # if doi_match:
+        #     doc.frontmatter.doi = doi_match.group(0)
+        # These aren't frontmatter because they're not about the document
+        # itself.
+        doc.metadata["source"] = "PDF"
+        doc.metadata["extracted"] = datetime.now().strftime("%Y-%m-%d")
 
     def _clean_block_text(self, text):
         """Clean individual block text from common artifacts."""
@@ -531,43 +533,43 @@ class PdfConverter:
     # AUTHOR AND CO-AUTHORS EXTRACTION
     # ------------------------------------------------------
 
-    def detect_authors(self, spans, title_y, doc):
-        """Detect author names near the title using font and position."""
-        # First try: look for italic spans near title (ACM author bylines)
-        byline_spans = [
-            s for s in spans
-            if "Italic" in s.get("font", "")
-            and s["size"] > 12
-            and abs(s["y"] - title_y) < 200
-        ]
-        if byline_spans:
-            byline_text = " ".join(s["text"] for s in sorted(
-                byline_spans, key=lambda s: (s["y"], s["x"])
-            ))
-            # Extract names from byline
-            name_pat = re.compile(
-                r'[A-Z][a-z]+(?:\s[A-Z]\.)?'
-                r'\s[A-Z][a-z]+(?:-[A-Z][a-z]+)?'
-            )
-            names = name_pat.findall(byline_text)
-            if names:
-                doc.frontmatter.author = list(dict.fromkeys(names))[:10]
-                return
+    # def detect_authors(self, spans, title_y, doc):
+    #     """Detect author names near the title using font and position."""
+    #     # First try: look for italic spans near title (ACM author bylines)
+    #     byline_spans = [
+    #         s for s in spans
+    #         if "Italic" in s.get("font", "")
+    #         and s["size"] > 12
+    #         and abs(s["y"] - title_y) < 200
+    #     ]
+    #     if byline_spans:
+    #         byline_text = " ".join(s["text"] for s in sorted(
+    #             byline_spans, key=lambda s: (s["y"], s["x"])
+    #         ))
+    #         # Extract names from byline
+    #         name_pat = re.compile(
+    #             r'[A-Z][a-z]+(?:\s[A-Z]\.)?'
+    #             r'\s[A-Z][a-z]+(?:-[A-Z][a-z]+)?'
+    #         )
+    #         names = name_pat.findall(byline_text)
+    #         if names:
+    #             doc.frontmatter.authors = list(dict.fromkeys(names))[:10]
+    #             return
         # Fallback: general name pattern
-        name_pattern = re.compile(
-            r'\b[A-Z][a-z]+(?:\s[A-Z]\.)?'
-            r'\s[A-Z][a-z]+(?:\s(?:van|de|von)\s[A-Z][a-z]+)?'
-        )
-        candidates = []
-        for s in spans:
-            if s["y"] < title_y - 50 or s["y"] > title_y + 260:
-                continue
-            if s["size"] < 10:
-                continue
-            candidates.extend(name_pattern.findall(s["text"]))
-        authors = list(dict.fromkeys(candidates))
-        if authors:
-            doc.frontmatter.author = authors[:10]
+        # name_pattern = re.compile(
+        #     r'\b[A-Z][a-z]+(?:\s[A-Z]\.)?'
+        #     r'\s[A-Z][a-z]+(?:\s(?:van|de|von)\s[A-Z][a-z]+)?'
+        # )
+        # candidates = []
+        # for s in spans:
+        #     if s["y"] < title_y - 50 or s["y"] > title_y + 260:
+        #         continue
+        #     if s["size"] < 10:
+        #         continue
+        #     candidates.extend(name_pattern.findall(s["text"]))
+        # authors = list(dict.fromkeys(candidates))
+        # if authors:
+        #     doc.frontmatter.authors = authors[:10]
 
     # ------------------------------------------------------
     # TITLE AND SUBTITLE EXTRACTION
@@ -590,7 +592,7 @@ class PdfConverter:
             title_y = min(s["y"] for s in title_font_spans)
             largest = max(s["size"] for s in title_font_spans)
             return title, title_y, largest
-        # Fallback: largest font spans
+        Fallback: largest font spans
         spans_sorted = sorted(top_spans, key=lambda s: -s["size"])
         largest = spans_sorted[0]["size"]
         title_spans = [
@@ -650,7 +652,64 @@ class PdfConverter:
         Extract structured frontmatter (title, authors, affiliations)
         from the first page using span-level data.
         """
-        
+        # 1. Get spans from first page.
+        spans = get_spans(self.doc[0])
+        if not spans:
+            return
+        # 2. Restrict to top region
+        top_spans = [s for s in spans if s["y"] < FRONTMATTER_Y_LIMIT]
+        # 3. Detect title
+        title, title_y, title_size = self.detect_title(top_spans)
+        # --------------------------------------------------
+        if title:
+            doc.frontmatter.title = title
+        else:
+            return # cannot proceed without anchor
+        # 4. Detect subtitle
+        subtitle = self.detect_subtitle(top_spans, title_y)
+        if subtitle:
+            doc.frontmatter.subtitle = subtitle
+        # 5. Collect candidate spans below title
+        band = [
+                s for s in top_spans
+                if title_y < s["y"] < title_y + 250
+        ]
+        # Sort for reading order
+        band.sort(key=lambda s: (s["y"], s["x"]))
+        # 6. Extract authors
+        author_candidates = []
+        for s in band:
+            text = s["text"]
+            # Skip emails and URLs
+            if "@" in text or "http" in text:
+                continue
+            # Simple name pattern
+            if re.match(r'^[A-Z][a-z]+(?:\s[A-Z][a-z]+)+$', text):
+                author_candidates.append(text)
+        # --------------------------------------------------
+        seen = set()
+        authors = []
+        for name in author_candidates:
+            if name not in seen:
+                authors.append(name)
+                seen.add(name)
+        doc.frontmatter.authors = authors[:10]
+        # Extract affiliations
+        affiliations = []
+        for s in band:
+            text = s["text"]
+            if any(keyword in text for keyword in [
+                "University", "Institute", "College", "School"
+            ]):
+                affiliations.append(text)
+        # Deduplicate
+        doc.frontmatter.affiliations = list(dict.fromkeys(affiliations))
+        # 8. DOI
+        for s in top_spans:
+            match = re.search(r'10\.\d{4,9}/\S+', s["text"])
+            if match:
+                doc.frontmatter.doi = match.group(0)
+                break
 
     # ------------------------------------------------------
     # YAML
@@ -694,18 +753,7 @@ class PdfConverter:
         doc = self.build_document(raw_lines)
         
         # 3. Metadata Layer
-        for pg_idx in range(min(2, len(self.doc))):
-            spans = get_spans(self.doc[pg_idx])
-            if not spans:
-                continue
-            title, title_y, title_size = self.detect_title(spans)
-            if title:
-                doc.frontmatter.title = title
-                subtitle = self.detect_subtitle(spans, title_y)
-                if subtitle:
-                    doc.frontmatter.subtitle = subtitle
-                self.detect_authors(spans, title_y, doc)
-                break
+        self.extract_frontmatter(doc)
         self.extract_metadata(doc)
         
         # 4. Refinement Layer
