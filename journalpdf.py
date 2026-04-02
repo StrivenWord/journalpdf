@@ -642,6 +642,16 @@ class PdfConverter:
         return " ".join(lines)
 
     # ------------------------------------------------------
+    # FRONTMATTER EXTRACTION
+    # ------------------------------------------------------
+
+    def extract_frontmatter(self, doc):
+        spans = get_spans(self.doc[0])
+        top_spans = [s for s in spans if s["y"] < FRONTMATTER_Y_LIMIT]
+        title, title_y, title_size = self.detect_title(spans)
+
+
+    # ------------------------------------------------------
     # YAML
     # ------------------------------------------------------
 
