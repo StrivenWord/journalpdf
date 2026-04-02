@@ -650,7 +650,6 @@ class PdfConverter:
         top_spans = [s for s in spans if s["y"] < FRONTMATTER_Y_LIMIT]
         title, title_y, title_size = self.detect_title(spans)
 
-
     # ------------------------------------------------------
     # YAML
     # ------------------------------------------------------
