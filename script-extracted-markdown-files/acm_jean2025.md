@@ -1,7 +1,14 @@
 ---
 title: "Easing the Block-to-Text Transition: A Scaﬀolded Approach to Learning Python"
 subtitle: "Python DEVIN JEAN , Vanderbilt University, Nashville, TN, United States GORDON STEIN , Vanderbilt University, Nashville, TN, United States BRIAN BROLL"
+authors:
+  - "Open Access Support"
+  - "Vanderbilt University"
+affiliations:
+  - ", Vanderbilt University, Nashville, TN, United States"
+  - "Vanderbilt University"
 doi: "10.1145/3736181.3747126"
+extracted: "2026-04-02"
 ---
 
 

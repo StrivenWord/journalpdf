@@ -1,4 +1,4 @@
-# Alpha Version 2.1 - 2026-04-01
+# Alpha Version 2.2 - 2026-04-01
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
@@ -592,7 +592,7 @@ class PdfConverter:
             title_y = min(s["y"] for s in title_font_spans)
             largest = max(s["size"] for s in title_font_spans)
             return title, title_y, largest
-        Fallback: largest font spans
+        # Fallback: largest font spans
         spans_sorted = sorted(top_spans, key=lambda s: -s["size"])
         largest = spans_sorted[0]["size"]
         title_spans = [
