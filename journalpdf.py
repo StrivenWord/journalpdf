@@ -105,7 +105,7 @@ def fix_hyphenation(text):
     return text
 
 
-def clean_common_acm_artifacts(text):
+def clean_common_artifacts(text):
     text = re.sub(
         r'\d+\s*i\s*n\s*t\s*e\s*r\s*a\s*c\s*t\s*i\s*o\s*n\s*s.*?\n',
         '', text, flags=re.I
@@ -534,7 +534,7 @@ class PdfConverter:
         """Clean individual block text from common artifacts."""
         text = normalize_unicode(text)
         text = fix_hyphenation(text)
-        text = clean_common_acm_artifacts(text)
+        text = clean_common_artifacts(text)
         # Remove figure caption remnants
         text = re.sub(r'^(Figure|Table|Fig\.)\s+\d.*$', '', text, flags=re.MULTILINE)
         # Remove parenthetical sidebar noise
