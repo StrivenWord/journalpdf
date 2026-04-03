@@ -75,6 +75,7 @@ class FrontMatter:
         self.doi = None
         self.published_date = None
         self.conference = None
+        self.body_start_y = None
         # optional raw capture (debugging)
         self._raw_lines = []
 
@@ -120,6 +121,15 @@ def clean_common_acm_artifacts(text):
     )
     text = re.sub(r' {2,}', ' ', text)
     return text.strip()
+
+
+def normalize_whitespace(text):
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def yaml_quote(text):
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _font_matches(font_name, font_set):
@@ -187,6 +197,7 @@ class PdfConverter:
     def __init__(self, pdf_path):
         self.pdf_path = pdf_path
         self.doc = fitz.open(pdf_path)
+        self.first_page_body_start_y = None
 
     # ------------------------------------------------------
     # LINE-LEVEL EXTRACTION
@@ -376,7 +387,7 @@ class PdfConverter:
     def extract_raw_lines(self):
         """Extract all content lines from the PDF in reading order."""
         all_ordered_lines = []
-        for page in self.doc:
+        for page_index, page in enumerate(self.doc):
             page_height = page.rect.height
             page_width = page.rect.width
             top_margin = page_height * 0.08
@@ -389,6 +400,9 @@ class PdfConverter:
                 if lt in (LineType.FOOTER_HEADER, LineType.TITLE, LineType.NOISE,
                           LineType.AUTHOR_BYLINE):
                     continue
+                if (page_index == 0 and self.first_page_body_start_y is not None
+                        and ln["y0"] < self.first_page_body_start_y):
+                    continue
                 if ln["y0"] < top_margin and lt != LineType.ABSTRACT:
                     continue
                 if ln["y1"] > bottom_margin:
@@ -400,9 +414,9 @@ class PdfConverter:
             all_ordered_lines.extend(ordered)
         return all_ordered_lines
 
-    def build_document(self, lines):
+    def build_document(self, lines, doc=None):
         """Transform raw lines into a structured Document object."""
-        doc = Document()
+        doc = doc or Document()
         if not lines:
             return doc
 
@@ -643,6 +657,124 @@ class PdfConverter:
             return None
         return " ".join(lines)
 
+    def _is_frontmatter_noise_line(self, text):
+        text_lower = normalize_whitespace(text).lower()
+        return (
+            not text_lower
+            or text_lower.startswith("latest updates:")
+            or text_lower == "pdf download"
+            or text_lower.startswith("total citations:")
+            or text_lower.startswith("total downloads:")
+            or text_lower.startswith("published:")
+            or text_lower.startswith("accepted:")
+            or text_lower.startswith("received:")
+            or text_lower.startswith("citation in bibtex format")
+            or text_lower.startswith("conference sponsors:")
+            or text_lower.startswith("open access support provided by:")
+            or text_lower in {"article", "research-article"}
+            or text_lower.endswith(".pdf")
+        )
+
+    def _looks_like_affiliation(self, text):
+        text_lower = normalize_whitespace(text).lower()
+        affiliation_keywords = (
+            "university", "institute", "college", "school", "department",
+            "laboratory", "centre", "center", "faculty"
+        )
+        location_markers = ("united states", "germany", "singapore", "belgium", "usa")
+        return (
+            any(keyword in text_lower for keyword in affiliation_keywords)
+            or any(marker in text_lower for marker in location_markers)
+        )
+
+    def _looks_like_person_name(self, text):
+        candidate = normalize_whitespace(text).strip(" ,")
+        if not candidate or len(candidate) < 5:
+            return False
+        if any(char.isdigit() for char in candidate):
+            return False
+        if self._looks_like_affiliation(candidate):
+            return False
+        if any(token in candidate.lower() for token in (
+            "open access", "citation", "published", "accepted", "received"
+        )):
+            return False
+        tokens = candidate.replace(",", " ").split()
+        if len(tokens) < 2 or len(tokens) > 6:
+            return False
+        valid_tokens = 0
+        for token in tokens:
+            stripped = token.strip(".,")
+            if not stripped:
+                continue
+            if len(stripped) == 1 and stripped.isalpha():
+                valid_tokens += 1
+                continue
+            if stripped.isupper():
+                valid_tokens += 1
+                continue
+            if stripped[:1].isupper() and stripped[1:].islower():
+                valid_tokens += 1
+                continue
+        return valid_tokens == len(tokens)
+
+    def _normalize_person_name(self, name):
+        parts = []
+        for token in normalize_whitespace(name).split():
+            bare = token.strip(",")
+            suffix = "," if token.endswith(",") else ""
+            if len(bare) == 2 and bare[1] == "." and bare[0].isalpha():
+                parts.append(f"{bare[0].upper()}.{suffix}")
+            elif bare.isupper():
+                parts.append(f"{bare.title()}{suffix}")
+            else:
+                parts.append(f"{bare}{suffix}")
+        return " ".join(parts)
+
+    def _extract_author_name_and_affiliation(self, text):
+        cleaned = normalize_whitespace(text).strip(" ,")
+        if not cleaned:
+            return None, None
+        if "," in cleaned:
+            name_part, remainder = cleaned.split(",", 1)
+            if self._looks_like_person_name(name_part):
+                affiliation = normalize_whitespace(remainder.strip(" ,"))
+                if affiliation and self._looks_like_affiliation(affiliation):
+                    return self._normalize_person_name(name_part), affiliation
+                return self._normalize_person_name(name_part), None
+        if self._looks_like_person_name(cleaned):
+            return self._normalize_person_name(cleaned), None
+        return None, None
+
+    def _join_frontmatter_lines(self, texts):
+        parts = []
+        for text in texts:
+            cleaned = normalize_unicode(text).strip()
+            if not cleaned:
+                continue
+            if parts and parts[-1].endswith("-"):
+                parts[-1] = f"{parts[-1]}{cleaned}"
+            else:
+                parts.append(cleaned)
+        return normalize_whitespace(" ".join(parts))
+
+    def _detect_first_page_body_start(self, lines):
+        sorted_lines = sorted(lines, key=lambda ln: (ln["y0"], ln["x0"]))
+        for line in sorted_lines:
+            text = normalize_whitespace(line["text"]).lower()
+            if line["line_type"] is LineType.ABSTRACT or text == "abstract":
+                return line["y0"]
+        for line in sorted_lines:
+            if line["line_type"] in (LineType.HEADING, LineType.REFERENCE_HEADING) and line["y0"] > 250:
+                return line["y0"]
+        lower_page_body_lines = [
+            line for line in sorted_lines
+            if line["line_type"] is LineType.BODY and line["y0"] > 350
+        ]
+        if len(lower_page_body_lines) >= 5:
+            return min(line["y0"] for line in lower_page_body_lines)
+        return float("inf")
+
     # ------------------------------------------------------
     # FRONTMATTER EXTRACTION
     # ------------------------------------------------------
@@ -650,65 +782,124 @@ class PdfConverter:
     def extract_frontmatter(self, doc):
         """
         Extract structured frontmatter (title, authors, affiliations)
-        from the first page using span-level data.
+        from the first page before body processing.
         """
-        # 1. Get spans from first page.
-        spans = get_spans(self.doc[0])
-        if not spans:
+        first_page = self.doc[0]
+        lines = self.get_page_lines(first_page)
+        if not lines:
             return
-        # 2. Restrict to top region
-        top_spans = [s for s in spans if s["y"] < FRONTMATTER_Y_LIMIT]
-        # 3. Detect title
-        title, title_y, title_size = self.detect_title(top_spans)
-        # --------------------------------------------------
-        if title:
-            doc.frontmatter.title = title
-        else:
-            return # cannot proceed without anchor
-        # 4. Detect subtitle
-        subtitle = self.detect_subtitle(top_spans, title_y)
-        if subtitle:
-            doc.frontmatter.subtitle = subtitle
-        # 5. Collect candidate spans below title
-        band = [
-                s for s in top_spans
-                if title_y < s["y"] < title_y + 250
+        page_width = first_page.rect.width
+        top_lines = [
+            ln for ln in lines
+            if ln["y0"] < FRONTMATTER_Y_LIMIT
         ]
-        # Sort for reading order
-        band.sort(key=lambda s: (s["y"], s["x"]))
-        # 6. Extract authors
-        author_candidates = []
-        for s in band:
-            text = s["text"]
-            # Skip emails and URLs
+        top_lines.sort(key=lambda ln: (ln["y0"], ln["x0"]))
+        doc.frontmatter._raw_lines = [normalize_unicode(ln["text"]) for ln in top_lines]
+
+        self.first_page_body_start_y = self._detect_first_page_body_start(lines)
+        doc.frontmatter.body_start_y = self.first_page_body_start_y
+
+        left_lines = [
+            ln for ln in top_lines
+            if ln["x0"] < page_width * 0.62
+            and not self._is_frontmatter_noise_line(ln["text"])
+        ]
+        if not left_lines:
+            return
+
+        title_candidates = [ln for ln in left_lines if ln["y0"] > 120]
+        if not title_candidates:
+            return
+        title_size = max(ln["size"] for ln in title_candidates)
+        title_seed = next(
+            (ln for ln in title_candidates if abs(ln["size"] - title_size) <= 0.5),
+            None
+        )
+        if not title_seed:
+            return
+
+        title_lines = []
+        for ln in title_candidates:
+            if ln["y0"] < title_seed["y0"] - 2:
+                continue
+            if abs(ln["size"] - title_size) > 0.8:
+                continue
+            if ln["x0"] > page_width * 0.62:
+                continue
+            if title_lines and ln["y0"] - title_lines[-1]["y0"] > 22:
+                break
+            title_lines.append(ln)
+        if not title_lines:
+            return
+
+        doc.frontmatter.title = self._join_frontmatter_lines(
+            [ln["text"] for ln in title_lines]
+        )
+        title_end_y = max(ln["y1"] for ln in title_lines)
+
+        open_access_line = next(
+            (ln for ln in top_lines
+             if "open access support provided by:" in ln["text"].lower()),
+            None
+        )
+        author_band_end_y = (
+            open_access_line["y0"]
+            if open_access_line is not None
+            else min(title_end_y + 170, FRONTMATTER_Y_LIMIT)
+        )
+        author_band = [
+            ln for ln in left_lines
+            if title_end_y < ln["y0"] < author_band_end_y
+        ]
+
+        authors = []
+        affiliations = []
+        for line in author_band:
+            text = normalize_unicode(line["text"])
             if "@" in text or "http" in text:
                 continue
-            # Simple name pattern
-            if re.match(r'^[A-Z][a-z]+(?:\s[A-Z][a-z]+)+$', text):
-                author_candidates.append(text)
-        # --------------------------------------------------
-        seen = set()
-        authors = []
-        for name in author_candidates:
-            if name not in seen:
-                authors.append(name)
-                seen.add(name)
-        doc.frontmatter.authors = authors[:10]
-        # Extract affiliations
-        affiliations = []
-        for s in band:
-            text = s["text"]
-            if any(keyword in text for keyword in [
-                "University", "Institute", "College", "School"
-            ]):
-                affiliations.append(text)
-        # Deduplicate
-        doc.frontmatter.affiliations = list(dict.fromkeys(affiliations))
-        # 8. DOI
-        for s in top_spans:
-            match = re.search(r'10\.\d{4,9}/\S+', s["text"])
+            author_name, affiliation = self._extract_author_name_and_affiliation(text)
+            if author_name and author_name not in authors:
+                authors.append(author_name)
+            if affiliation and affiliation not in affiliations:
+                affiliations.append(affiliation)
+        doc.frontmatter.authors = authors
+        doc.frontmatter.affiliations = affiliations
+
+        subtitle_lines = []
+        first_author_y = min(
+            (ln["y0"] for ln in author_band
+             if self._extract_author_name_and_affiliation(normalize_unicode(ln["text"]))[0]),
+            default=None
+        )
+        if first_author_y is not None:
+            for line in left_lines:
+                if not (title_end_y < line["y0"] < first_author_y):
+                    continue
+                if self._is_frontmatter_noise_line(line["text"]):
+                    continue
+                subtitle_lines.append(normalize_unicode(line["text"]))
+        if subtitle_lines:
+            doc.frontmatter.subtitle = self._join_frontmatter_lines(subtitle_lines)
+
+        for line in top_lines:
+            text = normalize_unicode(line["text"])
+            match = re.search(r'10\.\d{4,9}/[^\s")]+', text, re.I)
             if match:
-                doc.frontmatter.doi = match.group(0)
+                doc.frontmatter.doi = match.group(0).rstrip(".,;")
+                break
+            if "doi/" in text.lower():
+                doi_tail = text.lower().split("doi/", 1)[1].strip()
+                if doi_tail.startswith("10."):
+                    doc.frontmatter.doi = doi_tail.rstrip(".,;")
+                    break
+
+        for line in top_lines:
+            text = normalize_unicode(line["text"])
+            if text.startswith("Published:"):
+                doc.frontmatter.published_date = normalize_whitespace(
+                    text.split(":", 1)[1]
+                )
                 break
 
     # ------------------------------------------------------
@@ -719,22 +910,24 @@ class PdfConverter:
         fm = doc.frontmatter
         yaml_lines = ["---"]
         if fm.title:
-            yaml_lines.append(f'title: "{fm.title}"')
+            yaml_lines.append(f"title: {yaml_quote(fm.title)}")
         if fm.subtitle:
-            yaml_lines.append(f'subtitle: "{fm.subtitle}"')
+            yaml_lines.append(f"subtitle: {yaml_quote(fm.subtitle)}")
         if fm.authors:
             yaml_lines.append("authors:")
             for x in fm.authors:
-                yaml_lines.append(f'  - "{x}"') # indentation and bullet point for multiple authors
+                yaml_lines.append(f"  - {yaml_quote(x)}")
         if fm.affiliations:
             yaml_lines.append("affiliations:")
             for y in fm.affiliations:
-                yaml_lines.append(f'  - "{y}"')
+                yaml_lines.append(f"  - {yaml_quote(y)}")
         if fm.doi:
-            yaml_lines.append(f'doi: "{fm.doi}"')
+            yaml_lines.append(f"doi: {yaml_quote(fm.doi)}")
+        if fm.published_date:
+            yaml_lines.append(f"published_date: {yaml_quote(fm.published_date)}")
         # selected metadata projected into frontmatter
         if "extracted" in doc.metadata:
-            yaml_lines.append(f'extracted: "{doc.metadata["extracted"]}"')
+            yaml_lines.append(f'extracted: {yaml_quote(doc.metadata["extracted"])}')
         yaml_lines.append("---\n")
         return "\n".join(yaml_lines) + "\n\n"
 
@@ -746,21 +939,25 @@ class PdfConverter:
 
     def convert(self):
         """Alpha Version 2 pipeline execution."""
-        # 1. Extraction Layer
-        raw_lines = self.extract_raw_lines()
-        
-        # 2. Document Model Layer
-        doc = self.build_document(raw_lines)
-        
-        # 3. Metadata Layer
+        doc = Document()
+
+        # 1. Frontmatter Layer
         self.extract_frontmatter(doc)
+
+        # 2. Extraction Layer
+        raw_lines = self.extract_raw_lines()
+
+        # 3. Document Model Layer
+        doc = self.build_document(raw_lines, doc=doc)
+
+        # 4. Metadata Layer
         self.extract_metadata(doc)
-        
-        # 4. Refinement Layer
+
+        # 5. Refinement Layer
         for block in doc.blocks:
             block.text = self._clean_block_text(block.text)
-            
-        # 5. Rendering Layer
+
+        # 6. Rendering Layer
         markdown = self.generate_yaml(doc)
         markdown += self.render_markdown(doc)
         
