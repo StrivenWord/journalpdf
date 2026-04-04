@@ -1,4 +1,4 @@
-# Alpha Version 3 - 2026-04-04
+# Alpha Version 3.1 - 2026-04-04
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
@@ -24,7 +24,7 @@ from datetime import datetime
 
 HEADING_FONTS = {"GillSans-Bold"}
 TITLE_FONT_PREFIXES = {"WatersTitling"}
-# AUTHOR_BIO_FONTS = {"GaramondThree-BoldSC"}
+AUTHOR_BIO_FONTS = {"GaramondThree-BoldSC"}
 ABSTRACT_FONTS = {"OfficinaSans-BoldItalic"}
 FOOTER_HEADER_FONTS = {"Gill-Blk", "Gill-Bk"}
 REFERENCE_HEADING_TEXT = {"References", "REFERENCES"}
@@ -142,9 +142,9 @@ def dateform(x):
             return x
     return x.strftime("%Y-%m-%d")
 
-# def _font_matches(font_name, font_set):
-#     """Check if a font name matches any prefix in a font set."""
-#     return any(prefix in font_name for prefix in font_set)
+def _font_matches(font_name, font_set):
+    """Check if a font name matches any prefix in a font set."""
+    return any(prefix in font_name for prefix in font_set)
 
 
 def spans_to_text_line(spans):
