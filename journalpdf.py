@@ -22,15 +22,6 @@ from datetime import datetime
 from unidecode import unidecode
 from datetime import datetime
 
-HEADING_FONTS = {"GillSans-Bold"}
-TITLE_FONT_PREFIXES = {"WatersTitling"}
-AUTHOR_BIO_FONTS = {"GaramondThree-BoldSC"}
-ABSTRACT_FONTS = {"OfficinaSans-BoldItalic"}
-FOOTER_HEADER_FONTS = {"Gill-Blk", "Gill-Bk"}
-REFERENCE_HEADING_TEXT = {"References", "REFERENCES"}
-FRONTMATTER_Y_LIMIT = 600
-
-
 # ==========================================================
 # Enums and Model Classes (Alpha Version 2)
 # ==========================================================
@@ -294,17 +285,6 @@ class PdfConverter:
             return LineType.NOISE
         # Section heading: all spans are heading font at body size+
         non_empty = [s for s in spans if s["text"].strip()]
-        all_heading_font = all(
-            _font_matches(s.get("font", ""), HEADING_FONTS)
-            and round(s["size"]) >= body_size
-            for s in non_empty
-        )
-        if all_heading_font and not re.match(r'^(Figure|Table|Fig\.)\s', text):
-            # Distinguish section headings from figure captions
-            if stripped in REFERENCE_HEADING_TEXT:
-                return LineType.REFERENCE_HEADING
-            return LineType.HEADING
-        # Figure/table caption (bold heading font, smaller size)
         if (all(_font_matches(s.get("font", ""), HEADING_FONTS)
                 for s in non_empty)
                 and first_size < body_size):
