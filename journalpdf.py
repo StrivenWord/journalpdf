@@ -131,6 +131,13 @@ def yaml_quote(text):
     escaped = text.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
+def dateform(x):
+    if x is None:
+        return ""
+    if isinstance(x, str):
+        # If it's already a string return it or parse it first
+        return x
+    return x.strftime("%Y-%m-%d")
 
 def _font_matches(font_name, font_set):
     """Check if a font name matches any prefix in a font set."""
@@ -908,7 +915,6 @@ class PdfConverter:
 
     def generate_yaml(self, doc):
         fm = doc.frontmatter
-        dateform = lambda x: x.strftime("%Y-%m-%d")
         yaml_lines = ["---"]
         if fm.title:
             yaml_lines.append(f"title: {yaml_quote(fm.title)}")
