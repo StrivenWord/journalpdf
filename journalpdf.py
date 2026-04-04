@@ -1,4 +1,4 @@
-# Alpha Version 2.3 - 2026-04-03
+# Alpha Version 3 - 2026-04-04
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
