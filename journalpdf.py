@@ -446,7 +446,7 @@ class PdfConverter:
         for i in range(1, len(lines)):
             prev = lines[i-1]
             curr = lines[i]
-            if self._is_block_break(prev, curr):
+            if self._linebreak(prev, curr):
                 groups.append(current_group)
                 current_group = [curr]
             else:
@@ -455,10 +455,12 @@ class PdfConverter:
             groups.append(current_group)
         return groups
 
-    def _is_block_break(self, prev, curr):
+    def _linebreak(self, prev, curr):
         """Determine if there should be a break between two lines."""
         # Different line types always cause a break
         if prev["line_type"] != curr["line_type"]:
+            return True
+        if len(curr["text"].split()) <= 10:
             return True
         # Specific break logic for body/abstract text
         if curr["line_type"] in (LineType.BODY, LineType.ABSTRACT):
