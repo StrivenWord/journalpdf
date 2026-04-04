@@ -213,22 +213,22 @@ class PdfConverter:
     # LINE-LEVEL EXTRACTION
     # ------------------------------------------------------
 
-    # def _estimate_body_size(self, data):
-    #     """Find the most common non-bold font size on a page."""
-    #     counts = {}
-    #     for block in data["blocks"]:
-    #         if "lines" not in block:
-    #             continue
-    #         for line in block["lines"]:
-    #             for span in line["spans"]:
-    #                 font = span.get("font", "")
-    #                 if (span["text"].strip()
-    #                         and "Bold" not in font
-    #                         and not _font_matches(font, TITLE_FONT_PREFIXES)
-    #                         and not _font_matches(font, ABSTRACT_FONTS)):
-    #                     sz = round(span["size"])
-    #                     counts[sz] = counts.get(sz, 0) + 1
-    #     return max(counts, key=counts.get) if counts else 10
+    def _fontsize(self, data):
+        """Find the most common non-bold font size on a page."""
+        counts = {}
+        for block in data["blocks"]:
+            if "lines" not in block:
+                continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    font = span.get("font", "")
+                    if (span["text"].strip()
+                            and "Bold" not in font
+                            and not _font_matches(font, TITLE_FONT_PREFIXES)
+                            and not _font_matches(font, ABSTRACT_FONTS)):
+                        sz = round(span["size"])
+                        counts[sz] = counts.get(sz, 0) + 1
+        return max(counts, key=counts.get) if counts else 10
 
     def get_page_lines(self, page):
         """
@@ -236,7 +236,7 @@ class PdfConverter:
         Returns list of dicts: x0, y0, x1, y1, text, line_type (LineType), spans.
         """
         data = page.get_text("dict")
-        body_size = self._estimate_body_size(data)
+        body_size = self._fontsize(data)
         page_width = page.rect.width
         lines = []
         for raw_block in data["blocks"]:
