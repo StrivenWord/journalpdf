@@ -257,50 +257,23 @@ class PdfConverter:
 
     def _lineclass(self, text, spans, first_font, first_size,
                        body_size, x0, x1, page_width):
-        """Classify a line by its role in the document."""
-        # Footer/header
-        if _font_matches(first_font, FOOTER_HEADER_FONTS):
-            return LineType.FOOTER_HEADER
-        # Title font
-        if _font_matches(first_font, TITLE_FONT_PREFIXES):
-            return LineType.TITLE
-        # Abstract/intro blurb font
-        # if _font_matches(first_font, ABSTRACT_FONTS):
-        #     return LineType.ABSTRACT
-        text_norm = text.strip().lower()
+        stripped = text.strip()
+        text_norm = stripped.lower()
+        # ABSTRACT (anchor point in ACM)
         if re.fullmatch(r"abstract[:.\-–—]?", text_norm):
             return LineType.ABSTRACT
-        # Decorative noise (single-char non-alnum)
-        stripped = text.strip()
+        # Reference heading (pure text-based)
+        if stripped in REFERENCE_HEADING_TEXT:
+            return LineType.REFERENCE_HEADING
+        # Figure/table captions
+        if re.match(r'^(Figure|Table|Fig\.)\s+\d', stripped):
+            return LineType.FIGURE_CAPTION
+        # Noise: tiny fragments
         if len(stripped) <= 2 and not stripped.isalnum():
             return LineType.NOISE
-        # Reference heading in non-heading font (e.g., GaramondThree-BoldSC)
-        # Check before narrow-block filter since "References" can be narrow.
-        if (stripped in REFERENCE_HEADING_TEXT
-                and _font_matches(first_font, AUTHOR_BIO_FONTS)):
-            return LineType.REFERENCE_HEADING
-        # Very narrow blocks (margin labels, sidebar text)
-        width = x1 - x0
-        if width < page_width * 0.08:
+        # Narrow columns (sidebars)
+        if (x1 - x0) < page_width * 0.08:
             return LineType.NOISE
-        # Section heading: all spans are heading font at body size+
-        non_empty = [s for s in spans if s["text"].strip()]
-        if (all(_font_matches(s.get("font", ""), HEADING_FONTS)
-                for s in non_empty)
-                and first_size < body_size):
-            return LineType.FIGURE_CAPTION
-        if re.match(r'^(Figure|Table|Fig\.)\s+\d', text):
-            return LineType.FIGURE_CAPTION
-        # Author bio line (bold small-caps name font)
-        if (_font_matches(first_font, AUTHOR_BIO_FONTS)
-                and first_size <= body_size + 1
-                and stripped not in REFERENCE_HEADING_TEXT):
-            return LineType.AUTHOR_BIO
-        # Author byline (italic, larger than body, near title area)
-        if ("Italic" in first_font and first_size > body_size + 2
-                and "Semibold" not in first_font
-                and "Bold" not in first_font):
-            return LineType.AUTHOR_BYLINE
         return LineType.BODY
 
     # ------------------------------------------------------
