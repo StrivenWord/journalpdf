@@ -205,20 +205,19 @@ class PdfConverter:
     # ------------------------------------------------------
 
     def _fontsize(self, data):
-        """Find the most common non-bold font size on a page."""
+        """Find the most common font size on the page."""
         counts = {}
         for block in data["blocks"]:
             if "lines" not in block:
                 continue
             for line in block["lines"]:
                 for span in line["spans"]:
-                    font = span.get("font", "")
-                    if (span["text"].strip()
-                            and "Bold" not in font
-                            and not _font_matches(font, TITLE_FONT_PREFIXES)
-                            and not _font_matches(font, ABSTRACT_FONTS)):
-                        sz = round(span["size"])
-                        counts[sz] = counts.get(sz, 0) + 1
+                    text = span["text"].strip()
+                    if not text:
+                        continue
+                    size = round(span["size"])
+                    counts[size] = counts.get(size, 0) + 1
+        # return most frequent size
         return max(counts, key=counts.get) if counts else 10
 
     def get_page_lines(self, page):
