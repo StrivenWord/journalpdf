@@ -788,16 +788,19 @@ class PdfConverter:
         if not lines:
             return
         page_width = first_page.rect.width
-        top_lines = [
-            ln for ln in lines
-            if ln["y0"] < FRONTMATTER_Y_LIMIT
-        ]
+        # Sort lines in reading order first
+        lines = sorted(lines, key=lambda ln: (ln["y0"], ln["x0"]))
+        top_lines = []
+        for ln in lines:
+            text = normalize_whitespace(ln["text"]).lower()
+            # Stop at first real section (body start)
+            if self._heading(ln["text"]) and text == "introduction":
+                break
+            top_lines.append(ln)
         top_lines.sort(key=lambda ln: (ln["y0"], ln["x0"]))
         doc.frontmatter._raw_lines = [normalize_unicode(ln["text"]) for ln in top_lines]
-
         self.first_page_body_start_y = self._detect_first_page_body_start(lines)
         doc.frontmatter.body_start_y = self.first_page_body_start_y
-
         left_lines = [
             ln for ln in top_lines
             if ln["x0"] < page_width * 0.62
@@ -805,7 +808,6 @@ class PdfConverter:
         ]
         if not left_lines:
             return
-
         title_candidates = [ln for ln in left_lines if ln["y0"] > 120]
         if not title_candidates:
             return
