@@ -24,7 +24,7 @@ from datetime import datetime
 
 HEADING_FONTS = {"GillSans-Bold"}
 TITLE_FONT_PREFIXES = {"WatersTitling"}
-AUTHOR_BIO_FONTS = {"GaramondThree-BoldSC"}
+# AUTHOR_BIO_FONTS = {"GaramondThree-BoldSC"}
 ABSTRACT_FONTS = {"OfficinaSans-BoldItalic"}
 FOOTER_HEADER_FONTS = {"Gill-Blk", "Gill-Bk"}
 REFERENCE_HEADING_TEXT = {"References", "REFERENCES"}
@@ -142,9 +142,9 @@ def dateform(x):
             return x
     return x.strftime("%Y-%m-%d")
 
-def _font_matches(font_name, font_set):
-    """Check if a font name matches any prefix in a font set."""
-    return any(prefix in font_name for prefix in font_set)
+# def _font_matches(font_name, font_set):
+#     """Check if a font name matches any prefix in a font set."""
+#     return any(prefix in font_name for prefix in font_set)
 
 
 def spans_to_text_line(spans):
@@ -213,22 +213,22 @@ class PdfConverter:
     # LINE-LEVEL EXTRACTION
     # ------------------------------------------------------
 
-    def _estimate_body_size(self, data):
-        """Find the most common non-bold font size on a page."""
-        counts = {}
-        for block in data["blocks"]:
-            if "lines" not in block:
-                continue
-            for line in block["lines"]:
-                for span in line["spans"]:
-                    font = span.get("font", "")
-                    if (span["text"].strip()
-                            and "Bold" not in font
-                            and not _font_matches(font, TITLE_FONT_PREFIXES)
-                            and not _font_matches(font, ABSTRACT_FONTS)):
-                        sz = round(span["size"])
-                        counts[sz] = counts.get(sz, 0) + 1
-        return max(counts, key=counts.get) if counts else 10
+    # def _estimate_body_size(self, data):
+    #     """Find the most common non-bold font size on a page."""
+    #     counts = {}
+    #     for block in data["blocks"]:
+    #         if "lines" not in block:
+    #             continue
+    #         for line in block["lines"]:
+    #             for span in line["spans"]:
+    #                 font = span.get("font", "")
+    #                 if (span["text"].strip()
+    #                         and "Bold" not in font
+    #                         and not _font_matches(font, TITLE_FONT_PREFIXES)
+    #                         and not _font_matches(font, ABSTRACT_FONTS)):
+    #                     sz = round(span["size"])
+    #                     counts[sz] = counts.get(sz, 0) + 1
+    #     return max(counts, key=counts.get) if counts else 10
 
     def get_page_lines(self, page):
         """
