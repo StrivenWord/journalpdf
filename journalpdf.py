@@ -1,4 +1,4 @@
-# Alpha Version 3.1 - 2026-04-04
+# Alpha Version 3.2 - 2026-04-04
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
@@ -262,7 +262,7 @@ class PdfConverter:
         if re.fullmatch(r"abstract[:.\-–—]?", text_norm):
             return LineType.ABSTRACT
         # Reference heading (pure text-based)
-        if stripped in REFERENCE_HEADING_TEXT:
+        if stripped.lower().startswith("references"):
             return LineType.REFERENCE_HEADING
         # Figure/table captions
         if re.match(r'^(Figure|Table|Fig\.)\s+\d', stripped):
