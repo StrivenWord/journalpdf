@@ -783,7 +783,9 @@ and Research (BMBF), which has financed the project "Gekonnt
 
 hanDeln" under the grant 13FH007SB7. In addition, we would like to thank all project collaborators as well as all participants of our
 
-REFERENCES [1] Claus Atzenbeck, Sam Brooker, and Daniel Rossner. 2023. Storytelling Machines.
+# REFERENCES
+
+[1] Claus Atzenbeck, Sam Brooker, and Daniel Rossner. 2023. Storytelling Machines.
 
 In Proceedings of the 6th Workshop on Human Factors in Hypertext (Rome, Italy) (HUMAN '23). Association for Computing Machinery, New York, NY, USA, Article
 
