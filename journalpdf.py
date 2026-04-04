@@ -528,7 +528,7 @@ class PdfConverter:
         # These aren't frontmatter because they're not about the document
         # itself.
         doc.metadata["source"] = "PDF"
-        doc.metadata["extracted"] = datetime.now().strftime("%Y-%m-%d")
+        doc.metadata["date-extracted"] = datetime.now().strftime("%Y-%m-%d")
 
     def _clean_block_text(self, text):
         """Clean individual block text from common artifacts."""
@@ -926,8 +926,8 @@ class PdfConverter:
         if fm.published_date:
             yaml_lines.append(f"published_date: {yaml_quote(fm.published_date)}")
         # selected metadata projected into frontmatter
-        if "extracted" in doc.metadata:
-            yaml_lines.append(f'extracted: {yaml_quote(doc.metadata["extracted"])}')
+        if "date-extracted" in doc.metadata:
+            yaml_lines.append(f'date-extracted: {yaml_quote(doc.metadata["date-extracted"])}')
         yaml_lines.append("---\n")
         return "\n".join(yaml_lines) + "\n\n"
 

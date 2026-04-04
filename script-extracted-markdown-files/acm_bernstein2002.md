@@ -6,7 +6,7 @@ affiliations:
   - "National University of Singapore, Singapore City, Singapore"
 doi: "10.1145/513338.513383"
 published_date: "11 June 2002"
-extracted: "2026-04-03"
+date-extracted: "2026-04-04"
 ---
 
 
