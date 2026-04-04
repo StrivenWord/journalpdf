@@ -778,7 +778,7 @@ class PdfConverter:
     # FRONTMATTER EXTRACTION
     # ------------------------------------------------------
 
-    def extract_frontmatter(self, doc):
+    def fmget(self, doc):
         """
         Extract structured frontmatter (title, authors, affiliations)
         from the first page before body processing.
@@ -941,7 +941,7 @@ class PdfConverter:
         doc = Document()
 
         # 1. Frontmatter Layer
-        self.extract_frontmatter(doc)
+        self.fmget(doc)
 
         # 2. Extraction Layer
         raw_lines = self.extract_raw_lines()
