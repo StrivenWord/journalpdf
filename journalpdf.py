@@ -1,4 +1,4 @@
-# Alpha Version 3.2 - 2026-04-04
+# Alpha Version 3.3 - 2026-04-04
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
@@ -198,7 +198,7 @@ class PdfConverter:
     def __init__(self, pdf_path):
         self.pdf_path = pdf_path
         self.doc = fitz.open(pdf_path)
-        self.first_page_body_start_y = None
+        self.y_start = None
 
     # ------------------------------------------------------
     # LINE-LEVEL EXTRACTION
@@ -362,8 +362,8 @@ class PdfConverter:
                 if lt in (LineType.FOOTER_HEADER, LineType.TITLE, LineType.NOISE,
                           LineType.AUTHOR_BYLINE):
                     continue
-                if (page_index == 0 and self.first_page_body_start_y is not None
-                        and ln["y0"] < self.first_page_body_start_y):
+                if (page_index == 0 and self.y_start is not None
+                        and ln["y0"] < self.y_start):
                     continue
                 if ln["y0"] < top_margin and lt != LineType.ABSTRACT:
                     continue
@@ -757,7 +757,7 @@ class PdfConverter:
                 parts.append(cleaned)
         return normalize_whitespace(" ".join(parts))
 
-    def _detect_first_page_body_start(self, lines):
+    def _detect_y_start(self, lines):
         sorted_lines = sorted(lines, key=lambda ln: (ln["y0"], ln["x0"]))
         for line in sorted_lines:
             text = normalize_whitespace(line["text"]).lower()
@@ -797,17 +797,17 @@ class PdfConverter:
         #     if self._heading(ln["text"]) and text == "introduction":
         #         break
         #     top_lines.append(ln)
-        self.first_page_body_start_y = self._detect_first_page_body_start(lines)
-        doc.frontmatter.body_start_y = self.first_page_body_start_y
+        self.y_start = self._detect_y_start(lines)
+        doc.frontmatter.body_start_y = self.y_start
         # Determine where the body actually starts
         top_lines = [
                 ln for ln in lines
-                if ln["y0"] < self.first_page_body_start_y
+                if ln["y0"] < self.y_start
         ]
         top_lines.sort(key=lambda ln: (ln["y0"], ln["x0"]))
         doc.frontmatter._raw_lines = [normalize_unicode(ln["text"]) for ln in top_lines]
-        self.first_page_body_start_y = self._detect_first_page_body_start(lines)
-        doc.frontmatter.body_start_y = self.first_page_body_start_y
+        self.y_start = self._detect_y_start(lines)
+        doc.frontmatter.body_start_y = self.y_start
         left_lines = [
             ln for ln in top_lines
             if ln["x0"] < page_width * 0.62
