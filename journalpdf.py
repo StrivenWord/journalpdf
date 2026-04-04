@@ -136,8 +136,10 @@ def dateform(x):
     if x is None:
         return ""
     if isinstance(x, str):
-        # If it's already a string return it or parse it first
-        return x
+        try: # Parse date
+            x = datetime.strptime(x, "%d %B %Y")
+        except ValueError: # fallback
+            return x
     return x.strftime("%Y-%m-%d")
 
 def _font_matches(font_name, font_set):

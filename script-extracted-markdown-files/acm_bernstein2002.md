@@ -5,7 +5,7 @@ authors:
 affiliations:
   - "National University of Singapore, Singapore City, Singapore"
 doi: "10.1145/513338.513383"
-date-published: "11 June 2002"
+date-published: "2002-06-11"
 date-extracted: "2026-04-04"
 ---
 
