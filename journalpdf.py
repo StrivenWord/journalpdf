@@ -924,7 +924,7 @@ class PdfConverter:
         if fm.doi:
             yaml_lines.append(f"doi: {yaml_quote(fm.doi)}")
         if fm.published_date:
-            yaml_lines.append(f"published_date: {yaml_quote(fm.published_date)}")
+            yaml_lines.append(f"date-published: {yaml_quote(fm.published_date)}")
         # selected metadata projected into frontmatter
         if "date-extracted" in doc.metadata:
             yaml_lines.append(f'date-extracted: {yaml_quote(doc.metadata["date-extracted"])}')
