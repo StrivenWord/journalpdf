@@ -908,6 +908,7 @@ class PdfConverter:
 
     def generate_yaml(self, doc):
         fm = doc.frontmatter
+        dateform = lambda x: x.strftime("%Y-%m-%d")
         yaml_lines = ["---"]
         if fm.title:
             yaml_lines.append(f"title: {yaml_quote(fm.title)}")
@@ -924,7 +925,7 @@ class PdfConverter:
         if fm.doi:
             yaml_lines.append(f"doi: {yaml_quote(fm.doi)}")
         if fm.published_date:
-            yaml_lines.append(f"date-published: {yaml_quote(fm.published_date)}")
+            yaml_lines.append(f"date-published: {yaml_quote(dateform(fm.published_date))}")
         # selected metadata projected into frontmatter
         if "date-extracted" in doc.metadata:
             yaml_lines.append(f'date-extracted: {yaml_quote(doc.metadata["date-extracted"])}')
