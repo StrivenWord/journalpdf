@@ -476,6 +476,33 @@ class PdfConverter:
             return True
         return False
 
+    def _heading(self, text):
+        t = text.strip()
+        # Reject lines that are too long to be headings. 
+        if len(t.split()) > 12:
+            return False
+        # Reject sentences.
+        if t.endswith('.') or t.endswith(','):
+            return False
+        # numbered headings
+        if re.match(r'^\d+(\.\d+)*\s+[A-Z]', t):
+            return True
+        # all-caps headings
+        if t.isupper() and 1 <= len(t.split()) <= 8:
+            return True
+        # subsections -- title case lines
+        if (
+                len(t.split()) <= 8
+                and t[0].isupper()
+                and not t.isupper()
+            ):
+            # Avoid false positives like author names
+            if not any(word.islower() for word in t.split()):
+                return False
+            return True
+        return False
+
+
     def _lines_to_block(self, group):
         """Convert a group of lines into a single Block."""
         if not group:
@@ -493,14 +520,22 @@ class PdfConverter:
         elif lt is LineType.ABSTRACT:
             return Block(BlockType.ABSTRACT, text)
         elif lt is LineType.BODY:
+            if self._heading(text):
+                level=self._headinglevel(text)
+                return Block(BlockType.HEADING, text, level=level)
             return Block(BlockType.PARAGRAPH, text)
         return None
 
-    def _detect_heading_level(self, text):
-        """Detect heading level from text pattern (e.g. '1.2.3')."""
-        match = re.match(r'^(\d+(?:\.\d+)*)\s+', text)
+    def _headinglevel(self, text):
+        t = text.strip()
+        # numbered hierarchy
+        match = re.match(r'^(\d+(?:\.\d+)*)\s+', t)
         if match:
             return len(match.group(1).split('.'))
+        # abstract, always top-level
+        if t.upper() == "ABSTRACT":
+            return 1
+        # default section level
         return 1
 
     def render_markdown(self, document):
