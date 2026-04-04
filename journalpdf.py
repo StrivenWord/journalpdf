@@ -243,7 +243,7 @@ class PdfConverter:
                 x0, y0, x1, y1 = raw_line["bbox"]
                 first_font = line_spans[0].get("font", "")
                 first_size = line_spans[0]["size"]
-                line_type = self._classify_line(
+                line_type = self._lineclass(
                     text, line_spans, first_font, first_size,
                     body_size, x0, x1, page_width
                 )
@@ -255,7 +255,7 @@ class PdfConverter:
                 })
         return lines
 
-    def _classify_line(self, text, spans, first_font, first_size,
+    def _lineclass(self, text, spans, first_font, first_size,
                        body_size, x0, x1, page_width):
         """Classify a line by its role in the document."""
         # Footer/header
