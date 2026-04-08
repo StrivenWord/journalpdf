@@ -1,4 +1,4 @@
-# Alpha Version 4.1 - 2026-04-08
+# Alpha Version 4.2 - 2026-04-08
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
@@ -33,6 +33,7 @@ class LineType(Enum):
     BODY = auto()
     ABSTRACT = auto()
     FIGURE_CAPTION = auto()
+    FOOTNOTE = auto()
     REFERENCE_HEADING = auto()
     AUTHOR_BIO = auto()
     TITLE = auto()
@@ -45,6 +46,7 @@ class BlockType(Enum):
     PARAGRAPH = auto()
     HEADING = auto()
     REFERENCE_HEADING = auto()
+    FOOTNOTE = auto()
     AUTHOR_BIO = auto()
     ABSTRACT = auto()
 
@@ -71,6 +73,12 @@ class ReferenceEntry:
     authors: list[str] = field(default_factory=list)
     title: str = ""
     year: str = ""
+
+
+@dataclass
+class Endnote:
+    number: str
+    text: str
 
 
 @dataclass
@@ -112,6 +120,7 @@ class FrontMatter:
 class Document:
     frontmatter: FrontMatter = field(default_factory=FrontMatter)
     root: Node = field(default_factory=lambda: Node(NodeType.ROOT))
+    endnotes: list[Endnote] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
 
 
@@ -218,6 +227,7 @@ class PdfConverter:
         self.pdf_path = pdf_path
         self.doc = fitz.open(pdf_path)
         self.y_start = None
+        self._footnote_lines = []
 
     def _fontsize(self, data):
         counts = {}
@@ -300,7 +310,7 @@ class PdfConverter:
     #         else:
     #             line["_col"] = "right"
 
-    def _order_page_lines(self, lines, page_width):
+    def _order_page_lines(self, lines, page_width, page_height):
         mid_x = page_width / 2
         gutter_margin = 20
         lineparts = []
@@ -322,6 +332,7 @@ class PdfConverter:
                     line["_col"] = "left"
                 else:
                     line["_col"] = "right"
+        self._mark_page_footnotes(lines, page_width, page_height)
         col_start_y = self._find_column_start(lines)
         pre_column = [line for line in lines if line["y0"] < col_start_y]
         in_column = [line for line in lines if line["y0"] >= col_start_y]
@@ -334,6 +345,40 @@ class PdfConverter:
         left_col.sort(key=lambda line: line["y0"])
         right_col.sort(key=lambda line: line["y0"])
         return abstract_lines + other_pre + left_col + right_col
+
+    def _mark_page_footnotes(self, lines, page_width, page_height):
+        footnote_start_pattern = re.compile(r"^(\d+)\s+")
+        mid_x = page_width / 2
+        for column in ("left", "right"):
+            column_lines = sorted(
+                [
+                    line
+                    for line in lines
+                    if ("left" if line["x0"] < mid_x else "right") == column
+                ],
+                key=lambda line: (line["y0"], line["x0"]),
+            )
+            starts = []
+            for line in column_lines:
+                text = line["text"].strip()
+                if line["y0"] < page_height * 0.82:
+                    continue
+                if line["size"] > line["body_size"] - 2:
+                    continue
+                match = footnote_start_pattern.match(text)
+                if not match:
+                    continue
+                starts.append((line, match.group(1)))
+
+            for index, (start_line, number) in enumerate(starts):
+                next_start_y = starts[index + 1][0]["y0"] if index + 1 < len(starts) else float("inf")
+                for line in column_lines:
+                    if line["y0"] < start_line["y0"] or line["y0"] >= next_start_y:
+                        continue
+                    if line["line_type"] is LineType.NOISE:
+                        continue
+                    line["line_type"] = LineType.FOOTNOTE
+                    line["_footnote_number"] = number
 
     def _find_column_start(self, lines):
         left_lines = sorted(
@@ -356,6 +401,7 @@ class PdfConverter:
 
     def extract_raw_lines(self):
         all_ordered_lines = []
+        all_footnote_lines = []
         for page_index, page in enumerate(self.doc):
             page_height = page.rect.height
             page_width = page.rect.width
@@ -366,6 +412,7 @@ class PdfConverter:
             for line in lines:
                 line["page_index"] = page_index
                 line["page_width"] = page_width
+                line["page_height"] = page_height
                 lt = line["line_type"]
                 if lt in (LineType.FOOTER_HEADER, LineType.TITLE, LineType.NOISE, LineType.AUTHOR_BYLINE):
                     continue
@@ -378,8 +425,13 @@ class PdfConverter:
                 filtered.append(line)
             if not filtered:
                 continue
-            ordered = self._order_page_lines(filtered, page_width)
-            all_ordered_lines.extend(ordered)
+            ordered = self._order_page_lines(filtered, page_width, page_height)
+            for line in ordered:
+                if line["line_type"] is LineType.FOOTNOTE:
+                    all_footnote_lines.append(line)
+                else:
+                    all_ordered_lines.append(line)
+        self._footnote_lines = all_footnote_lines
         return all_ordered_lines
 
     def build_document(self, lines, doc=None):
@@ -463,6 +515,8 @@ class PdfConverter:
             block_type = BlockType.AUTHOR_BIO
         elif line_type is LineType.REFERENCE_HEADING:
             block_type = BlockType.REFERENCE_HEADING
+        elif line_type is LineType.FOOTNOTE:
+            block_type = BlockType.FOOTNOTE
         elif line_type is LineType.HEADING:
             block_type = BlockType.HEADING
         return Block(
@@ -760,6 +814,28 @@ class PdfConverter:
 
         return ReferenceEntry(raw=cleaned, authors=authors, title=title, year=year)
 
+    def build_endnotes(self, footnote_lines):
+        grouped = {}
+        order = []
+        for line in sorted(footnote_lines, key=lambda item: (item["page_index"], item["y0"], item["x0"])):
+            number = line.get("_footnote_number")
+            if not number:
+                continue
+            if number not in grouped:
+                grouped[number] = []
+                order.append(number)
+            text = normalize_whitespace(line["text"])
+            if not grouped[number]:
+                text = re.sub(r"^\d+\s+", "", text)
+            grouped[number].append(text)
+
+        endnotes = []
+        for number in order:
+            note_text = normalize_whitespace(" ".join(grouped[number]))
+            if note_text:
+                endnotes.append(Endnote(number=number, text=note_text))
+        return endnotes
+
     def render_markdown(self, document):
         parts = []
 
@@ -785,7 +861,13 @@ class PdfConverter:
 
         for child in document.root.children:
             render(child)
-        return "\n\n".join(part for part in parts if part).strip() + "\n"
+        body = "\n\n".join(part for part in parts if part).strip()
+        if document.endnotes:
+            endnote_parts = ["---", ""]
+            for note in document.endnotes:
+                endnote_parts.append(f"[^{note.number}]: {note.text}")
+            body = f"{body}\n\n" + "\n".join(endnote_parts)
+        return body + "\n"
 
     def _format_reference_entry(self, entry):
         pieces = []
@@ -1138,8 +1220,11 @@ class PdfConverter:
         self.fmget(doc)
         raw_lines = self.extract_raw_lines()
         doc = self.build_document(raw_lines, doc=doc)
+        doc.endnotes = self.build_endnotes(self._footnote_lines)
         self.extract_metadata(doc)
         self._clean_tree(doc.root)
+        for note in doc.endnotes:
+            note.text = self._clean_block_text(note.text)
         markdown = self.generate_yaml(doc)
         markdown += self.render_markdown(doc)
         return markdown
