@@ -247,6 +247,7 @@ class PdfConverter:
         data = page.get_text("dict")
         body_size = self._fontsize(data)
         page_width = page.rect.width
+        page_height = page.rect.height
         lines = []
         for raw_block in data["blocks"]:
             if "lines" not in raw_block:
@@ -262,7 +263,7 @@ class PdfConverter:
                 first_font = line_spans[0].get("font", "")
                 first_size = line_spans[0]["size"]
                 line_type = self._lineclass(
-                    text, line_spans, first_font, first_size, body_size, x0, x1, page_width
+                    text, line_spans, first_font, first_size, body_size, x0, y0, x1, page_width, page_height
                 )
                 lines.append(
                     {
@@ -280,7 +281,7 @@ class PdfConverter:
                 )
         return lines
 
-    def _lineclass(self, text, spans, first_font, first_size, body_size, x0, x1, page_width):
+    def _lineclass(self, text, spans, first_font, first_size, body_size, x0, y0, x1, page_width, page_height):
         stripped = text.strip()
         text_norm = stripped.lower()
         if re.fullmatch(r"abstract[:.\-–—]?", text_norm):
@@ -294,12 +295,12 @@ class PdfConverter:
         if (x1 - x0) < page_width * 0.08:
             return LineType.NOISE
         if (
-            re.match(r"^\d+\s+", stripped)   # starts with a number
-            and y0 > page.rect.height * 0.75 # bottom quarter of page
-            and first_size <= body_size      # not larger than body text
+            re.match(r"^\d+\s+", stripped)           # starts with a number
+            and y0 > page_height * 0.75 # bottom quarter of page
+            and first_size <= body_size              # not larger than body text
             and len(stripped.split()) < 20
            ):
-            return lineType.FOOTNOTE
+            return LineType.FOOTNOTE
         return LineType.BODY
 
     # def _assign_columns(self, lines):
