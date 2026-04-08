@@ -40,7 +40,6 @@ class LineType(Enum):
     AUTHOR_BYLINE = auto()
     FOOTER_HEADER = auto()
     NOISE = auto()
-    FOOTNOTE = auto()
 
 
 class BlockType(Enum):
