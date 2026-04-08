@@ -1,4 +1,4 @@
-# Alpha Version 4 - 2026-04-06
+# Alpha Version 4.1 - 2026-04-08
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
@@ -285,9 +285,25 @@ class PdfConverter:
             return LineType.NOISE
         return LineType.BODY
 
+    # def _assign_columns(self, lines):
+    #     """
+    #     Assign each line to a column using clustering instead of midpoint.
+    #     """
+    #     xs = sorted(line["x0"] for line in lines)
+    #     if not xs:
+    #         return
+    #     # Baseline -- median split
+    #     mid = xs[len(xs) // 2]
+    #     for line in lines:
+    #         if line["x0"] < mid:
+    #             line["_col"] = "left"
+    #         else:
+    #             line["_col"] = "right"
+
     def _order_page_lines(self, lines, page_width):
         mid_x = page_width / 2
         gutter_margin = 20
+        lineparts = []
         for line in lines:
             width = line["x1"] - line["x0"]
             if (
@@ -296,20 +312,23 @@ class PdfConverter:
                 and width > page_width * 0.55
             ):
                 line["_col"] = "full"
-            elif line["x0"] < mid_x - gutter_margin:
-                line["_col"] = "left"
             else:
-                line["_col"] = "right"
-
+                lineparts.append(line)
+        xs = sorted(line["x0"] for line in lineparts)
+        if xs:
+            split = xs[len(xs) // 2]
+            for line in lineparts:
+                if line["x0"] < split:
+                    line["_col"] = "left"
+                else:
+                    line["_col"] = "right"
         col_start_y = self._find_column_start(lines)
         pre_column = [line for line in lines if line["y0"] < col_start_y]
         in_column = [line for line in lines if line["y0"] >= col_start_y]
-
         abstract_lines = [line for line in pre_column if line["line_type"] is LineType.ABSTRACT]
         other_pre = [line for line in pre_column if line["line_type"] is not LineType.ABSTRACT]
         abstract_lines.sort(key=lambda line: (line["y0"], line["x0"]))
         other_pre.sort(key=lambda line: (line["y0"], line["x0"]))
-
         left_col = [line for line in in_column if line["_col"] in ("left", "full")]
         right_col = [line for line in in_column if line["_col"] == "right"]
         left_col.sort(key=lambda line: line["y0"])
