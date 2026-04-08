@@ -40,6 +40,7 @@ class LineType(Enum):
     AUTHOR_BYLINE = auto()
     FOOTER_HEADER = auto()
     NOISE = auto()
+    FOOTNOTE = auto()
 
 
 class BlockType(Enum):
@@ -293,6 +294,13 @@ class PdfConverter:
             return LineType.NOISE
         if (x1 - x0) < page_width * 0.08:
             return LineType.NOISE
+        if (
+            re.match(r"^\d+\s+", stripped)   # starts with a number
+            and y0 > page.rect.height * 0.75 # bottom quarter of page
+            and first_size <= body_size      # not larger than body text
+            and len(stripped.split()) < 20
+           ):
+            return lineType.FOOTNOTE
         return LineType.BODY
 
     # def _assign_columns(self, lines):
