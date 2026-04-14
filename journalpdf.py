@@ -291,7 +291,7 @@ class PdfConverter:
             return LineType.REFERENCE_HEADING
         if re.match(r"^(Figure|Table|Fig\.)\s+\d", stripped):
             return LineType.FIGURE_CAPTION
-        if re.match(r"^\d+\.\s+", line):
+        if re.match(r"^\d+\.\s+", stripped):
             return LineType.ORDERED_LIST_ITEM
         if len(stripped) <= 2 and not stripped.isalnum():
             return LineType.NOISE
