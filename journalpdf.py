@@ -1,4 +1,4 @@
-# Alpha Version 4.5 - 2026-04-14
+# Alpha Version 4.6 - 2026-04-14
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
@@ -374,8 +374,10 @@ class PdfConverter:
         text_norm = stripped.lower()
         if re.fullmatch(r"abstract[:.\-–—]?", text_norm):
             return LineType.ABSTRACT
-        if stripped.lower().startswith("references"):
+        if re.match(r"^(?:\d+\.\s*)?references\b", stripped, re.I):
             return LineType.REFERENCE_HEADING
+        if re.fullmatch(r"(?:\[\d+\]|\d+\.)", stripped):
+            return LineType.ORDERED_LIST_ITEM
         if self._looks_like_ordered_list_item(stripped):
             return LineType.ORDERED_LIST_ITEM
         if re.match(r"^(Figure|Table|Fig\.)\s+\d", stripped):
@@ -510,7 +512,7 @@ class PdfConverter:
                     continue
                 if page_index == 0 and self.y_start is not None and line["y0"] < self.y_start:
                     continue
-                if line["y0"] < top_margin and lt != LineType.ABSTRACT:
+                if line["y0"] < top_margin and lt not in (LineType.ABSTRACT, LineType.REFERENCE_HEADING):
                     continue
                 if line["y1"] > bottom_margin:
                     continue
@@ -636,7 +638,7 @@ class PdfConverter:
         return len(match.group(1).split("."))
 
     def _starts_new_ordered_list_item(self, text):
-        return bool(re.match(r"^\d+\.\s+", normalize_whitespace(text)))
+        return bool(re.match(r"^\d+\.(?:\s+.*)?$", normalize_whitespace(text)))
 
     def _looks_like_ordered_list_item(self, text):
         normalized = normalize_whitespace(text)
@@ -887,7 +889,7 @@ class PdfConverter:
                 index += 1
                 continue
             starts_new = bool(
-                re.match(r"^(?:\[\d+\]|\d+\.)\s+", text)
+                re.match(r"^(?:\[\d+\]|\d+\.)(?:\s+.*)?$", text)
                 or re.match(r"^[A-Z][^.!?]{2,80}\(\d{4}[a-z]?\)", text)
                 or re.match(r"^[A-Z][A-Za-z' -]+,\s*[A-Z].{0,40}\d{4}", text)
             )
