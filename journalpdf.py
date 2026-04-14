@@ -31,8 +31,8 @@ FRONTMATTER_Y_LIMIT = 600
 class LineType(Enum):
     HEADING = auto()
     BODY = auto()
-    ABSTRACT = auto()
     ORDERED_LIST_ITEM = auto()
+    ABSTRACT = auto()
     FIGURE_CAPTION = auto()
     FOOTNOTE = auto()
     REFERENCE_HEADING = auto()
@@ -46,6 +46,7 @@ class LineType(Enum):
 class BlockType(Enum):
     PARAGRAPH = auto()
     HEADING = auto()
+    ORDERED_LIST_ITEM = auto()
     REFERENCE_HEADING = auto()
     FOOTNOTE = auto()
     AUTHOR_BIO = auto()
@@ -56,6 +57,8 @@ class NodeType(Enum):
     ROOT = auto()
     SECTION = auto()
     PARAGRAPH = auto()
+    ORDERED_LIST = auto()
+    ORDERED_LIST_ITEM = auto()
     ABSTRACT = auto()
     AUTHOR_BIO = auto()
     REFERENCE_SECTION = auto()
@@ -102,6 +105,7 @@ class Node:
     level: int | None = None
     children: list["Node"] = field(default_factory=list)
     references: list[ReferenceEntry] = field(default_factory=list)
+    ordered_items: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -248,7 +252,6 @@ class PdfConverter:
         data = page.get_text("dict")
         body_size = self._fontsize(data)
         page_width = page.rect.width
-        page_height = page.rect.height
         lines = []
         for raw_block in data["blocks"]:
             if "lines" not in raw_block:
@@ -264,7 +267,7 @@ class PdfConverter:
                 first_font = line_spans[0].get("font", "")
                 first_size = line_spans[0]["size"]
                 line_type = self._lineclass(
-                    text, line_spans, first_font, first_size, body_size, x0, y0, x1, page_width, page_height
+                    text, line_spans, first_font, first_size, body_size, x0, x1, page_width
                 )
                 lines.append(
                     {
@@ -282,28 +285,21 @@ class PdfConverter:
                 )
         return lines
 
-    def _lineclass(self, text, spans, first_font, first_size, body_size, x0, y0, x1, page_width, page_height):
+    def _lineclass(self, text, spans, first_font, first_size, body_size, x0, x1, page_width):
         stripped = text.strip()
         text_norm = stripped.lower()
         if re.fullmatch(r"abstract[:.\-–—]?", text_norm):
             return LineType.ABSTRACT
         if stripped.lower().startswith("references"):
             return LineType.REFERENCE_HEADING
+        if self._looks_like_ordered_list_item(stripped):
+            return LineType.ORDERED_LIST_ITEM
         if re.match(r"^(Figure|Table|Fig\.)\s+\d", stripped):
             return LineType.FIGURE_CAPTION
-        if re.match(r"^\d+\.\s+", stripped):
-            return LineType.ORDERED_LIST_ITEM
         if len(stripped) <= 2 and not stripped.isalnum():
             return LineType.NOISE
         if (x1 - x0) < page_width * 0.08:
             return LineType.NOISE
-        if (
-            re.match(r"^\d+\s+", stripped)           # starts with a number
-            and y0 > page_height * 0.75 # bottom quarter of page
-            and first_size <= body_size              # not larger than body text
-            and len(stripped.split()) < 20
-           ):
-            return LineType.FOOTNOTE
         return LineType.BODY
 
     # def _assign_columns(self, lines):
@@ -495,6 +491,13 @@ class PdfConverter:
         vertical_gap = curr["y0"] - prev["y1"]
         indent_diff = abs(curr["x0"] - prev["x0"])
 
+        if curr["line_type"] is LineType.ORDERED_LIST_ITEM:
+            if self._starts_new_ordered_list_item(curr["text"]):
+                return True
+            if vertical_gap > prev["body_size"] * 1.35:
+                return True
+            return False
+
         if curr["line_type"] in (LineType.BODY, LineType.ABSTRACT, LineType.AUTHOR_BIO):
             same_column_continuation = (
                 prev.get("_col") == curr.get("_col")
@@ -524,6 +527,8 @@ class PdfConverter:
             block_type = BlockType.ABSTRACT
         elif line_type is LineType.AUTHOR_BIO:
             block_type = BlockType.AUTHOR_BIO
+        elif line_type is LineType.ORDERED_LIST_ITEM:
+            block_type = BlockType.ORDERED_LIST_ITEM
         elif line_type is LineType.REFERENCE_HEADING:
             block_type = BlockType.REFERENCE_HEADING
         elif line_type is LineType.FOOTNOTE:
@@ -544,6 +549,22 @@ class PdfConverter:
         if not match:
             return None
         return len(match.group(1).split("."))
+
+    def _starts_new_ordered_list_item(self, text):
+        return bool(re.match(r"^\d+\.\s+", normalize_whitespace(text)))
+
+    def _looks_like_ordered_list_item(self, text):
+        normalized = normalize_whitespace(text)
+        if not re.match(r"^\d+\.\s+", normalized):
+            return False
+        heading_level = self._numbered_heading_level(normalized)
+        if heading_level and heading_level > 1:
+            return False
+        if re.match(r"^\d+\.\s+[A-Z][A-Za-z0-9'\"()/:,&-]*(?:\s+[A-Z][A-Za-z0-9'\"()/:,&-]*){0,6}$", normalized):
+            return False
+        if re.match(r"^\d+\.\s+[A-Z][^.!?]{1,80}$", normalized) and len(normalized.split()) <= 8:
+            return False
+        return True
 
     def _capitalization_headingish(self, text):
         words = text.split()
@@ -623,11 +644,7 @@ class PdfConverter:
 
     def detect_heading_candidates(self, blocks):
         for index, block in enumerate(blocks):
-            if block.type not in (
-                BlockType.PARAGRAPH, BlockType.HEADING, BlockType.REFERENCE_HEADING
-                ):
-                continue
-            if any(line["line_type"] == LineType.FOOTNOTE for line in block.lines):
+            if block.type not in (BlockType.PARAGRAPH, BlockType.HEADING, BlockType.REFERENCE_HEADING):
                 continue
             if block.type is BlockType.REFERENCE_HEADING:
                 block.heading_candidate = HeadingCandidate(block.text, 1.0, level_hint=1)
@@ -737,6 +754,9 @@ class PdfConverter:
                 while len(stack) > 1 and (stack[-1].level or 0) >= level:
                     stack.pop()
                 node = Node(NodeType.REFERENCE_SECTION, text="References", level=level)
+                ordered_items, _ = self.parse_ordered_list(blocks, index + 1)
+                if ordered_items:
+                    node.ordered_items = ordered_items
                 entries, index = self.parse_references(blocks, index + 1)
                 node.references = entries
                 stack[-1].children.append(node)
@@ -751,6 +771,12 @@ class PdfConverter:
                 stack.append(node)
                 index += 1
                 continue
+
+            if block.type is BlockType.ORDERED_LIST_ITEM:
+                items, index = self.parse_ordered_list(blocks, index)
+                if items:
+                    stack[-1].children.append(Node(NodeType.ORDERED_LIST, ordered_items=items))
+                    continue
 
             node_type = {
                 BlockType.PARAGRAPH: NodeType.PARAGRAPH,
@@ -791,6 +817,33 @@ class PdfConverter:
         for chunk in chunks:
             entries.append(self._parse_reference_entry(chunk))
         return entries, index
+
+    def parse_ordered_list(self, blocks, start_index):
+        items = []
+        current = ""
+        index = start_index
+        while index < len(blocks):
+            block = blocks[index]
+            if block.type in (BlockType.HEADING, BlockType.REFERENCE_HEADING):
+                break
+            if block.type not in (BlockType.ORDERED_LIST_ITEM, BlockType.PARAGRAPH):
+                break
+            text = normalize_whitespace(block.text)
+            if not text:
+                index += 1
+                continue
+            if block.type is BlockType.ORDERED_LIST_ITEM and self._starts_new_ordered_list_item(text):
+                if current:
+                    items.append(current.strip())
+                current = text
+            elif current:
+                current = f"{current} {text}".strip()
+            else:
+                break
+            index += 1
+        if current:
+            items.append(current.strip())
+        return items, index
 
     def _parse_reference_entry(self, raw):
         cleaned = normalize_whitespace(raw)
@@ -863,14 +916,21 @@ class PdfConverter:
                     parts.append(node.text)
             elif node.type is NodeType.PARAGRAPH:
                 parts.append(node.text)
+            elif node.type is NodeType.ORDERED_LIST:
+                for item in node.ordered_items:
+                    parts.append(self._format_ordered_list_item(item))
             elif node.type is NodeType.AUTHOR_BIO:
                 parts.append(node.text)
             elif node.type is NodeType.REFERENCE_SECTION:
                 parts.append(f'{"#" * (node.level or 1)} {node.text}')
-                for entry in node.references:
-                    formatted = self._format_reference_entry(entry)
-                    if formatted:
-                        parts.append(f"- {formatted}")
+                if node.ordered_items:
+                    for item in node.ordered_items:
+                        parts.append(self._format_ordered_list_item(item))
+                else:
+                    for position, entry in enumerate(node.references, start=1):
+                        formatted = self._format_reference_entry(entry)
+                        if formatted:
+                            parts.append(f"{position}. {formatted}")
             for child in node.children:
                 render(child)
 
@@ -895,6 +955,14 @@ class PdfConverter:
         if pieces:
             return ". ".join(piece.rstrip(".") for piece in pieces) + "."
         return entry.raw
+
+    def _format_ordered_list_item(self, text):
+        normalized = normalize_whitespace(text)
+        match = re.match(r"^(\d+)\.\s*(.*)$", normalized)
+        if not match:
+            return normalized
+        number, body = match.groups()
+        return f"{number}. {body.strip()}"
 
     def extract_tables_from_page(self, page):
         return []
@@ -929,6 +997,9 @@ class PdfConverter:
                 entry.raw = self._clean_block_text(entry.raw)
                 entry.title = self._clean_block_text(entry.title)
                 entry.authors = [self._clean_block_text(author) for author in entry.authors if author]
+            node.ordered_items = [self._clean_block_text(item) for item in node.ordered_items if item]
+        if node.type is NodeType.ORDERED_LIST:
+            node.ordered_items = [self._clean_block_text(item) for item in node.ordered_items if item]
         for child in node.children:
             self._clean_tree(child)
 
