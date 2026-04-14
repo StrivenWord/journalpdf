@@ -32,6 +32,7 @@ class LineType(Enum):
     HEADING = auto()
     BODY = auto()
     ABSTRACT = auto()
+    ORDERED_LIST_ITEM = auto()
     FIGURE_CAPTION = auto()
     FOOTNOTE = auto()
     REFERENCE_HEADING = auto()
@@ -290,6 +291,8 @@ class PdfConverter:
             return LineType.REFERENCE_HEADING
         if re.match(r"^(Figure|Table|Fig\.)\s+\d", stripped):
             return LineType.FIGURE_CAPTION
+        if re.match(r"^\d+\.\s+", line):
+            return LineType.ORDERED_LIST_ITEM
         if len(stripped) <= 2 and not stripped.isalnum():
             return LineType.NOISE
         if (x1 - x0) < page_width * 0.08:
