@@ -627,8 +627,8 @@ class PdfConverter:
                 BlockType.PARAGRAPH, BlockType.HEADING, BlockType.REFERENCE_HEADING
                 ):
                 continue
-                if any(line["line_type"] == LineType.FOOTNOTE for line in block.lines):
-                    continue
+            if any(line["line_type"] == LineType.FOOTNOTE for line in block.lines):
+                continue
             if block.type is BlockType.REFERENCE_HEADING:
                 block.heading_candidate = HeadingCandidate(block.text, 1.0, level_hint=1)
                 continue
