@@ -440,6 +440,7 @@ class PdfConverter:
     def _mark_page_footnotes(self, lines, page_width, page_height):
         footnote_start_pattern = re.compile(r"^(\d+)\s+")
         mid_x = page_width / 2
+        footnote_band_top = page_height * 0.75
         for column in ("left", "right"):
             column_lines = sorted(
                 [
@@ -452,7 +453,7 @@ class PdfConverter:
             starts = []
             for line in column_lines:
                 text = line["text"].strip()
-                if line["y0"] < page_height * 0.82:
+                if line["y0"] < footnote_band_top:
                     continue
                 if line["size"] > line["body_size"] - 2:
                     continue
