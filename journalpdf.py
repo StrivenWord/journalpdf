@@ -26,6 +26,11 @@ ABSTRACT_FONTS = {"OfficinaSans-BoldItalic"}
 FOOTER_HEADER_FONTS = {"Gill-Blk", "Gill-Bk"}
 REFERENCE_HEADING_TEXT = {"References", "REFERENCES"}
 FRONTMATTER_Y_LIMIT = 600
+INCLUDE_FIGURE_OCR_TEXT = False
+GRAPHIC_REGION_MARGIN = 2.0
+GRAPHIC_REGION_MIN_WIDTH_RATIO = 0.12
+GRAPHIC_REGION_MIN_HEIGHT_RATIO = 0.05
+GRAPHIC_REGION_MAX_TEXT_SIZE_RATIO = 0.75
 
 
 class LineType(Enum):
@@ -252,6 +257,7 @@ class PdfConverter:
         data = page.get_text("dict")
         body_size = self._fontsize(data)
         page_width = page.rect.width
+        graphic_regions = self._graphic_text_exclusion_regions(page, page_width, page.rect.height)
         lines = []
         for raw_block in data["blocks"]:
             if "lines" not in raw_block:
@@ -264,6 +270,8 @@ class PdfConverter:
                 if not text:
                     continue
                 x0, y0, x1, y1 = raw_line["bbox"]
+                if self._is_excluded_figure_text(raw_line, line_spans, body_size, graphic_regions):
+                    continue
                 first_font = line_spans[0].get("font", "")
                 first_size = line_spans[0]["size"]
                 line_type = self._lineclass(
@@ -284,6 +292,82 @@ class PdfConverter:
                     }
                 )
         return lines
+
+    def _graphic_text_exclusion_regions(self, page, page_width, page_height):
+        if INCLUDE_FIGURE_OCR_TEXT:
+            return []
+        regions = []
+        min_width = page_width * GRAPHIC_REGION_MIN_WIDTH_RATIO
+        min_height = page_height * GRAPHIC_REGION_MIN_HEIGHT_RATIO
+
+        for image in page.get_image_info(xrefs=True):
+            bbox = image.get("bbox")
+            if not bbox:
+                continue
+            rect = fitz.Rect(bbox)
+            if rect.width >= min_width and rect.height >= min_height:
+                regions.append(rect)
+
+        for drawing in page.get_drawings():
+            rect = drawing.get("rect")
+            if rect is None:
+                continue
+            rect = fitz.Rect(rect)
+            if rect.width >= min_width and rect.height >= min_height:
+                regions.append(rect)
+
+        return self._merge_rects(regions, margin=GRAPHIC_REGION_MARGIN)
+
+    def _merge_rects(self, rects, margin=0.0):
+        merged = []
+        for rect in sorted(rects, key=lambda item: (item.y0, item.x0, item.y1, item.x1)):
+            candidate = fitz.Rect(rect)
+            if margin:
+                candidate = fitz.Rect(
+                    candidate.x0 - margin,
+                    candidate.y0 - margin,
+                    candidate.x1 + margin,
+                    candidate.y1 + margin,
+                )
+            for index, existing in enumerate(merged):
+                if candidate.intersects(existing):
+                    merged[index] = existing | candidate
+                    break
+            else:
+                merged.append(candidate)
+
+        changed = True
+        while changed:
+            changed = False
+            compacted = []
+            for rect in merged:
+                for index, existing in enumerate(compacted):
+                    if rect.intersects(existing):
+                        compacted[index] = existing | rect
+                        changed = True
+                        break
+                else:
+                    compacted.append(rect)
+            merged = compacted
+        return merged
+
+    def _is_excluded_figure_text(self, raw_line, spans, body_size, graphic_regions):
+        if INCLUDE_FIGURE_OCR_TEXT or not graphic_regions or not spans:
+            return False
+
+        max_span_size = max(span.get("size", 0) for span in spans)
+        if max_span_size > body_size * GRAPHIC_REGION_MAX_TEXT_SIZE_RATIO:
+            return False
+
+        span_points = [fitz.Point(*span["origin"]) for span in spans if span.get("origin")]
+        if not span_points:
+            x0, y0, x1, y1 = raw_line["bbox"]
+            span_points = [fitz.Point((x0 + x1) / 2, (y0 + y1) / 2)]
+
+        for region in graphic_regions:
+            if all(region.contains(point) for point in span_points):
+                return True
+        return False
 
     def _lineclass(self, text, spans, first_font, first_size, body_size, x0, x1, page_width):
         stripped = text.strip()
