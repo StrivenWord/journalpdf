@@ -21,6 +21,7 @@ from unidecode import unidecode
 
 HEADING_FONTS = {"GillSans-Bold"}
 TITLE_FONT_PREFIXES = {"WatersTitling"}
+FONT_TEXT_ITALIC = 2
 AUTHOR_BIO_FONTS = {"GaramondThree-BoldSC"}
 ABSTRACT_FONTS = {"OfficinaSans-BoldItalic"}
 FOOTER_HEADER_FONTS = {"Gill-Blk", "Gill-Bk"}
