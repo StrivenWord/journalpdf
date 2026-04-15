@@ -17,6 +17,7 @@ wheels/
 *.swp
 .swo
 *.swo
+*.swn
 
 # This project doesn't use main.py, which might get put into the directory through automation
 main.py
