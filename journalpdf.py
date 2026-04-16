@@ -193,23 +193,68 @@ def _font_matches(font_name, font_set):
     return any(prefix in font_name for prefix in font_set)
 
 
-def spans_to_text_line(spans):
+# def spans_to_text_line(spans):
+#     if not spans:
+#         return ""
+#     parts = []
+#     for i, span in enumerate(spans):
+#         text = span["text"]
+#         if i > 0 and text and parts:
+#             prev = parts[-1]
+#             if prev and not prev.endswith((" ", "-")):
+#                 if not text.startswith((" ", ",", ".", ";", ":", ")", "]", "'")):
+#                     prev_char = prev[-1] if prev else ""
+#                     first_char = text[0] if text else ""
+#                     if not (prev_char.isupper() and first_char.islower()):
+#                         parts.append(" ")
+#         parts.append(text)
+#     return "".join(parts).strip()
+
+def _wrap_italic_segments(spans):
+    """Insert asterisks around italicized words."""
     if not spans:
         return ""
     parts = []
+    italic = []
     for i, span in enumerate(spans):
         text = span["text"]
-        if i > 0 and text and parts:
+        if not text:
+            continue
+        if i > 0 and parts:
             prev = parts[-1]
             if prev and not prev.endswith((" ", "-")):
-                if not text.startswith((" ", ",", ".", ";", ":", ")", "]", "'")):
-                    prev_char = prev[-1] if prev else ""
-                    first_char = text[0] if text else ""
-                    if not (prev_char.isupper() and first_char.islower()):
+                if not text.startswith((" ", ",", ".", ":", ")", "]", "'")):
+                    prev_c = prev[-1] if prev else ""
+                    first_c = text[0] if text else ""
+                    if not(prev_c.isupper() and first_c.islower()):
                         parts.append(" ")
+                        italic.append(False)
         parts.append(text)
-    return "".join(parts).strip()
+        italic.append(span.get("italic", False))
+    result = []
+    in_italic = False
+    for text, is_it in zip(parts, italic):
+        if is_it and not in_italic:
+            result.append("*")
+            in_italic = True
+        elif not is_it and in_italic:
+            last = result[-1] if result else ""
+            if last and not last.endswith((" ", "\n")): # Don't wrap EOL
+                result.append("*")
+            in_italic = False # exiting italicized block
+        result.append(text)
+    if in_italic:
+        result.append("*")
+    # constructing italic run
+    joined = "".join(result)
+    joined = re.sub(r"\*\s+\*", " ", joined)
+    joined = re.sub(r"(?<!\w)\*(\w)\*(?!\w)", r"\1", joined)
+    return joined.strip()
 
+def spans_to_text_line(spans):
+    if not spans:
+        return ""
+    return _wrap_italic_segments(spans)
 
 def get_spans(page):
     data = page.get_text("dict")
