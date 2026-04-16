@@ -220,6 +220,11 @@ def get_spans(page):
                 text = span["text"].strip()
                 if not text:
                     continue
+                is_italic = bool(span.get("flags", 0) & FONT_TEXT_ITALIC)
+                if not is_italic:
+                    font_name = span.get("font", "").lower()
+                    if "italic" in font_name or "oblique" in font_name:
+                        is_italic = True
                 spans.append(
                     {
                         "text": text,
@@ -228,6 +233,7 @@ def get_spans(page):
                         "y": span["bbox"][1],
                         "x": span["bbox"][0],
                         "bbox": span["bbox"],
+                        "italic": is_italic,
                     }
                 )
     return spans
