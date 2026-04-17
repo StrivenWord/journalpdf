@@ -193,6 +193,14 @@ def _font_matches(font_name, font_set):
     return any(prefix in font_name for prefix in font_set)
 
 
+def _span_is_italic(span):
+    flags = span.get("flags", 0)
+    if flags & FONT_TEXT_ITALIC:
+        return True
+    font_name = span.get("font", "").lower()
+    return "italic" in font_name or "oblique" in font_name
+
+
 # def spans_to_text_line(spans):
 #     if not spans:
 #         return ""
@@ -230,7 +238,7 @@ def _wrap_italic_segments(spans):
                         parts.append(" ")
                         italic.append(False)
         parts.append(text)
-        italic.append(span.get("italic", False))
+        italic.append(span.get("italic", _span_is_italic(span)))
     result = []
     in_italic = False
     for text, is_it in zip(parts, italic):
@@ -248,7 +256,6 @@ def _wrap_italic_segments(spans):
     # constructing italic run
     joined = "".join(result)
     joined = re.sub(r"\*\s+\*", " ", joined)
-    joined = re.sub(r"(?<!\w)\*(\w)\*(?!\w)", r"\1", joined)
     return joined.strip()
 
 def spans_to_text_line(spans):
@@ -265,11 +272,7 @@ def get_spans(page):
                 text = span["text"].strip()
                 if not text:
                     continue
-                is_italic = bool(span.get("flags", 0) & FONT_TEXT_ITALIC)
-                if not is_italic:
-                    font_name = span.get("font", "").lower()
-                    if "italic" in font_name or "oblique" in font_name:
-                        is_italic = True
+                is_italic = _span_is_italic(span)
                 spans.append(
                     {
                         "text": text,
@@ -1488,3 +1491,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
