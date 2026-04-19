@@ -1,4 +1,4 @@
-# Alpha Version 4.8 - 2026-04-17
+# Alpha Version 4.9 - 2026-04-19
 """
 ACM-Optimized PDF -> Markdown Pipeline
 --------------------------------------
@@ -26,12 +26,19 @@ AUTHOR_BIO_FONTS = {"GaramondThree-BoldSC"}
 ABSTRACT_FONTS = {"OfficinaSans-BoldItalic"}
 FOOTER_HEADER_FONTS = {"Gill-Blk", "Gill-Bk"}
 REFERENCE_HEADING_TEXT = {"References", "REFERENCES"}
-FRONTMATTER_Y_LIMIT = 600
+FRONTMATTER_Y_LIMIT = 600  # PDF points; frontmatter assumed to end above this y-coordinate
 INCLUDE_FIGURE_OCR_TEXT = False
 GRAPHIC_REGION_MARGIN = 2.0
 GRAPHIC_REGION_MIN_WIDTH_RATIO = 0.12
 GRAPHIC_REGION_MIN_HEIGHT_RATIO = 0.05
 GRAPHIC_REGION_MAX_TEXT_SIZE_RATIO = 0.75
+HEADING_SCORE_NUMBERED = 0.55
+HEADING_SCORE_SHORT = 0.15
+HEADING_SCORE_CAPITALIZED = 0.15
+HEADING_SCORE_NO_TERMINAL_PUNCT = 0.10
+HEADING_SCORE_ISOLATED = 0.15
+HEADING_SCORE_LARGER_FONT = 0.10
+HEADING_SCORE_THRESHOLD = 0.75
 
 
 class LineType(Enum):
@@ -182,9 +189,13 @@ def dateform(value):
     if value is None:
         return ""
     if isinstance(value, str):
-        try:
-            value = datetime.strptime(value, "%d %B %Y")
-        except ValueError:
+        for fmt in ("%d %B %Y", "%B %d, %Y", "%Y-%m-%d", "%Y/%m/%d"):
+            try:
+                value = datetime.strptime(value, fmt)
+                break
+            except ValueError:
+                continue
+        else:
             return value
     return value.strftime("%Y-%m-%d")
 
@@ -231,7 +242,7 @@ def _wrap_italic_segments(spans):
         if i > 0 and parts:
             prev = parts[-1]
             if prev and not prev.endswith((" ", "-")):
-                if not text.startswith((" ", ",", ".", ":", ")", "]", "'")):
+                if not text.startswith((" ", ",", ".", ";", ":", ")", "]", "'")):
                     prev_c = prev[-1] if prev else ""
                     first_c = text[0] if text else ""
                     if not(prev_c.isupper() and first_c.islower()):
@@ -256,6 +267,7 @@ def _wrap_italic_segments(spans):
     # constructing italic run
     joined = "".join(result)
     joined = re.sub(r"\*\s+\*", " ", joined)
+    joined = re.sub(r"\*\*+", "", joined)
     return joined.strip()
 
 def spans_to_text_line(spans):
@@ -293,6 +305,18 @@ class PdfConverter:
         self.doc = fitz.open(pdf_path)
         self.y_start = None
         self._footnote_lines = []
+
+    def close(self):
+        if self.doc is not None:
+            self.doc.close()
+            self.doc = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
 
     def _fontsize(self, data):
         counts = {}
@@ -427,6 +451,16 @@ class PdfConverter:
     def _lineclass(self, text, spans, first_font, first_size, body_size, x0, x1, page_width):
         stripped = text.strip()
         text_norm = stripped.lower()
+        if _font_matches(first_font, HEADING_FONTS):
+            return LineType.HEADING
+        if _font_matches(first_font, AUTHOR_BIO_FONTS):
+            return LineType.AUTHOR_BIO
+        if _font_matches(first_font, ABSTRACT_FONTS):
+            return LineType.ABSTRACT
+        if _font_matches(first_font, FOOTER_HEADER_FONTS):
+            return LineType.FOOTER_HEADER
+        if stripped in REFERENCE_HEADING_TEXT:
+            return LineType.REFERENCE_HEADING
         if re.fullmatch(r"abstract[:.\-–—]?", text_norm):
             return LineType.ABSTRACT
         if re.match(r"^(?:\d+\.\s*)?references\b", stripped, re.I):
@@ -462,6 +496,7 @@ class PdfConverter:
         mid_x = page_width / 2
         gutter_margin = 20
         lineparts = []
+        split_x = mid_x
         for line in lines:
             width = line["x1"] - line["x0"]
             if (
@@ -474,13 +509,13 @@ class PdfConverter:
                 lineparts.append(line)
         xs = sorted(line["x0"] for line in lineparts)
         if xs:
-            split = xs[len(xs) // 2]
+            split_x = xs[len(xs) // 2]
             for line in lineparts:
-                if line["x0"] < split:
+                if line["x0"] < split_x:
                     line["_col"] = "left"
                 else:
                     line["_col"] = "right"
-        self._mark_page_footnotes(lines, page_width, page_height)
+        self._mark_page_footnotes(lines, page_width, page_height, split_x)
         col_start_y = self._find_column_start(lines)
         pre_column = [line for line in lines if line["y0"] < col_start_y]
         in_column = [line for line in lines if line["y0"] >= col_start_y]
@@ -488,25 +523,27 @@ class PdfConverter:
         other_pre = [line for line in pre_column if line["line_type"] is not LineType.ABSTRACT]
         abstract_lines.sort(key=lambda line: (line["y0"], line["x0"]))
         other_pre.sort(key=lambda line: (line["y0"], line["x0"]))
-        left_col = [line for line in in_column if line["_col"] in ("left", "full")]
+        if any(line.get("_col") == "full" for line in in_column):
+            # Full-width lines can interleave both columns, so keep strict y-order.
+            in_column_ordered = sorted(in_column, key=lambda line: (line["y0"], line["x0"]))
+            return abstract_lines + other_pre + in_column_ordered
+        left_col = [line for line in in_column if line["_col"] == "left"]
         right_col = [line for line in in_column if line["_col"] == "right"]
         left_col.sort(key=lambda line: line["y0"])
         right_col.sort(key=lambda line: line["y0"])
         return abstract_lines + other_pre + left_col + right_col
 
-    def _mark_page_footnotes(self, lines, page_width, page_height):
+    def _mark_page_footnotes(self, lines, page_width, page_height, split_x=None):
         footnote_start_pattern = re.compile(r"^(\d+)\s+")
-        mid_x = page_width / 2
-        footnote_band_top = page_height * 0.75
+        if split_x is None:
+            xs = sorted(line["x0"] for line in lines)
+            split_x = xs[len(xs) // 2] if xs else page_width / 2
+        footnote_band_top = page_height * 0.75  # Note hard-coded values
         for column in ("left", "right"):
             column_lines = sorted(
-                [
-                    line
-                    for line in lines
-                    if ("left" if line["x0"] < mid_x else "right") == column
-                ],
+                [line for line in lines if line.get("_col") == column],
                 key=lambda line: (line["y0"], line["x0"]),
-            )
+                )
             starts = []
             for line in column_lines:
                 text = line["text"].strip()
@@ -520,11 +557,19 @@ class PdfConverter:
                 starts.append((line, match.group(1)))
 
             for index, (start_line, number) in enumerate(starts):
-                next_start_y = starts[index + 1][0]["y0"] if index + 1 < len(starts) else float("inf")
+                next_start_y = (
+                    starts[index + 1][0]["y0"] if index + 1 < len(starts) else float("inf")
+                    )
                 for line in column_lines:
                     if line["y0"] < start_line["y0"] or line["y0"] >= next_start_y:
                         continue
                     if line["line_type"] is LineType.NOISE:
+                        continue
+                    if line["y0"] < footnote_band_top:
+                        continue
+                    # Use same threshold as footnote start detection
+                    # -- re-evaluate if output endnote lines are truncated -- #
+                    if line["size"] > line["body_size"]:
                         continue
                     line["line_type"] = LineType.FOOTNOTE
                     line["_footnote_number"] = number
@@ -569,7 +614,13 @@ class PdfConverter:
                     continue
                 if line["y0"] < top_margin and lt not in (LineType.ABSTRACT, LineType.REFERENCE_HEADING):
                     continue
-                if line["y1"] > bottom_margin:
+                if (
+                    line["y1"] > bottom_margin
+                    and not (
+                        line["y0"] >= page_height * 0.75
+                        and line["size"] <= line["body_size"] -2
+                    )
+                ):
                     continue
                 filtered.append(line)
             if not filtered:
@@ -806,13 +857,13 @@ class PdfConverter:
             score = 0.0
             level_hint = self._numbered_heading_level(text)
             if level_hint is not None:
-                score += 0.55
+                score += HEADING_SCORE_NUMBERED
             if len(words) <= 12:
-                score += 0.15
+                score += HEADING_SCORE_SHORT
             if self._capitalization_headingish(text):
-                score += 0.15
+                score += HEADING_SCORE_CAPITALIZED
             if not self._has_terminal_punctuation(text):
-                score += 0.10
+                score += HEADING_SCORE_NO_TERMINAL_PUNCT
 
             prev_block = blocks[index - 1] if index > 0 else None
             next_block = blocks[index + 1] if index + 1 < len(blocks) else None
@@ -826,14 +877,14 @@ class PdfConverter:
                 if next_gap > block.lines[0]["body_size"] * 0.8:
                     isolated = True
             if isolated:
-                score += 0.15
+                score += HEADING_SCORE_ISOLATED
             if block.avg_size > block.lines[0]["body_size"] + 0.75:
-                score += 0.10
+                score += HEADING_SCORE_LARGER_FONT
 
             if not isolated and level_hint is None and block.avg_size <= block.lines[0]["body_size"] + 1.0:
                 continue
 
-            if score >= 0.75:
+            if score >= HEADING_SCORE_THRESHOLD:
                 block.heading_candidate = HeadingCandidate(text=text, score=score, level_hint=level_hint)
                 block.type = BlockType.HEADING
         return blocks
@@ -990,6 +1041,8 @@ class PdfConverter:
     def _parse_reference_entry(self, raw):
         cleaned = normalize_whitespace(raw)
         cleaned = re.sub(r"^(?:\[\d+\]|\d+\.)\s*", "", cleaned)
+        initial_re = re.compile(r"\b([A-Z])\.")
+        masked_cleaned = initial_re.sub(lambda match: f"{match.group(1)}\x00", cleaned)
         year_match = re.search(r"\b(19|20)\d{2}[a-z]?\b", cleaned)
         year = year_match.group(0) if year_match else ""
 
@@ -997,7 +1050,7 @@ class PdfConverter:
         if year_match:
             authors_segment = cleaned[: year_match.start()].strip(" .,;()")
         elif "." in cleaned:
-            authors_segment = cleaned.split(".", 1)[0].strip()
+            authors_segment = masked_cleaned.split(".", 1)[0].strip().replace("\x00", ".")
 
         authors = []
         if authors_segment:
@@ -1014,11 +1067,16 @@ class PdfConverter:
             title = quoted.group(1).strip()
         elif year_match:
             tail = cleaned[year_match.end() :].strip(" .,:;()")
-            sentences = [part.strip() for part in re.split(r"\.\s+", tail) if part.strip()]
+            masked_tail = initial_re.sub(lambda match: f"{match.group(1)}\x00", tail)
+            sentences = [part.strip().replace("\x00", ".") for part in re.split(r"\.\s+", masked_tail) if part.strip()]
             if sentences:
                 title = sentences[0]
         else:
-            parts = [part.strip() for part in re.split(r"\.\s+", cleaned) if part.strip()]
+            parts = [
+                part.strip().replace("\x00", ".")
+                for part in re.split(r"\.\s+", masked_cleaned)
+                if part.strip()
+            ]
             if len(parts) >= 2:
                 title = parts[1]
 
@@ -1035,16 +1093,38 @@ class PdfConverter:
                 grouped[number] = []
                 order.append(number)
             text = normalize_whitespace(line["text"])
+            # Only remove the leading number of the first line of a footnote
             if not grouped[number]:
-                text = re.sub(r"^\d+\s+", "", text)
+                text = re.sub(r"^\d+\s+", "", text) # not *
             grouped[number].append(text)
-
         endnotes = []
         for number in order:
             note_text = normalize_whitespace(" ".join(grouped[number]))
             if note_text:
+                # Clean common artificats, preserving content
+                note_text = self.scrubn(note_text)
                 endnotes.append(Endnote(number=number, text=note_text))
         return endnotes
+
+    def scrubn(self, text):
+        """Remove footnote-specific artifacts, preserving content"""
+        # Remove ACM copyright notice if present
+        text = re.sub(r"^\s*\u00a9\s*\d{4}\s+ACM\b.*$", "", text, flags=re.MULTILINE)
+        # Remove extra whitespace
+        text = re.sub(r" {2,}", " ", text)
+        # Remove permission boilerplate
+        text = re.sub(
+            r"\s*Permission to make digital or hard copies.*?\$[\d.]+\.\s",
+            " ",
+            text,
+            flags=re.S,
+        )
+        # Remove ACM reference line
+        text = re.sub(r"^ACM\b.*?$", "", text, flags=re.MULTILINE)
+        # Fix hyphenation across lines
+        text = fix_hyphenation(text)
+        # Normalize whitespace
+        return text.strip()
 
     def render_markdown(self, document):
         parts = []
@@ -1440,7 +1520,7 @@ class PdfConverter:
             yaml_lines.append(f"date-published: {yaml_quote(dateform(fm.published_date))}")
         if "date-extracted" in doc.metadata:
             yaml_lines.append(f'date-extracted: {yaml_quote(doc.metadata["date-extracted"])}')
-        yaml_lines.append("---\n")
+        yaml_lines.append("---")
         return "\n".join(yaml_lines) + "\n\n"
 
     def convert(self):
@@ -1461,8 +1541,8 @@ class PdfConverter:
 def batch_convert(directory):
     pdf_files = list(Path(directory).glob("*.pdf"))
     for pdf in pdf_files:
-        converter = PdfConverter(str(pdf))
-        output = converter.convert()
+        with PdfConverter(str(pdf)) as converter:
+            output = converter.convert()
         output_path = pdf.with_suffix(".md")
         with open(output_path, "w", encoding="utf-8") as handle:
             handle.write(output)
@@ -1482,8 +1562,8 @@ def main():
         print("Provide input PDF or use --batch")
         sys.exit(1)
     output_path = args.output or Path(args.input).with_suffix(".md")
-    converter = PdfConverter(args.input)
-    markdown = converter.convert()
+    with PdfConverter(args.input) as converter:
+        markdown = converter.convert()
     with open(output_path, "w", encoding="utf-8") as handle:
         handle.write(markdown)
     print(f"Conversion complete: {output_path}")
@@ -1491,4 +1571,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
